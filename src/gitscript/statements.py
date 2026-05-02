@@ -1,7 +1,7 @@
 from typing import Optional
 
 from gitscript.ast import Ref, resolve, HeadRef
-from gitscript.commands import commit, commit_string, branch, checkout, reset, merge, show, log, tag, cherry_pick
+from gitscript.commands import commit, commit_string, branch, checkout, reset, merge, show, log, tag, cherry_pick, rebase
 from gitscript.operators import Operator
 from gitscript.repo import Repo
 
@@ -46,6 +46,13 @@ class CherryPick(Statement):
     
     def run(self, repo: Repo):
         cherry_pick(repo, self.ref)
+
+class Rebase(Statement):
+    def __init__(self, ref: Ref):
+        self.ref = ref
+
+    def run(self, repo: Repo):
+        rebase(repo, self.ref)
 
 class Branch(Statement):
     def __init__(self, branch_name: str):
