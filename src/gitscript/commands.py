@@ -1,6 +1,5 @@
 from gitscript.ast import resolve, Ref
 from gitscript.commit import Commit
-from gitscript.gc import maybe_gc
 from gitscript.operators import Operator
 from gitscript.repo import Repo
 
@@ -12,17 +11,8 @@ def commit(repo: Repo, value: int, amend=False):
 
     new = Commit(value, parent)
 
-    # update refcounts
-    new.refcount = 1
-    if parent:
-        parent.refcount += 1
-
     # move branch
     repo.branches[repo.HEAD] = new
-
-    # decrement old head
-    head.refcount -= 1
-    maybe_gc(head)
 
 def commit_string(repo: Repo, value: str, amend=False):
     head = repo.branches[repo.HEAD]
@@ -30,20 +20,14 @@ def commit_string(repo: Repo, value: str, amend=False):
     parent = head.parent if amend else head
     new = Commit(0, parent)
 
-    if parent:
-        parent.refcount += 1
     parent = new
 
     for char in value[::-1]:
         new = Commit(ord(char), parent)
-        parent.refcount += 1
         parent = new
 
     # move branch
     repo.branches[repo.HEAD] = new
-    new.refcount = 1
-    head.refcount -= 1
-    maybe_gc(head)
 
 def cherry_pick(repo: Repo, ref: Ref):
     c = resolve(ref, repo)
@@ -77,21 +61,13 @@ def merge(repo, ref, op: Operator):
     commit(repo, v)
 
 def reset(repo, ref):
-    old = repo.branches[repo.HEAD]
-    new = resolve(ref, repo)
-
-    repo.branches[repo.HEAD] = new
-    new.refcount += 1
-
-    old.refcount -= 1
-    maybe_gc(old)
+    repo.branches[repo.HEAD] = resolve(ref, repo)
 
 def branch(repo: Repo, name: str):
     if repo.has(name):
         raise RuntimeError(f"Branch or tag {name} already exists")
     c = repo.branches[repo.HEAD]
     repo.branches[name] = c
-    c.refcount += 1
 
 def checkout(repo: Repo, name: str):
     if name not in repo.branches:
@@ -103,14 +79,11 @@ def tag(repo: Repo, name: str):
         raise RuntimeError(f"Branch or tag {name} already exists")
     c = repo.branches[repo.HEAD]
     repo.tags[name] = c
-    c.refcount += 1
 
 def untag(repo: Repo, name: str):
     if tag not in repo.tags:
         raise RuntimeError(f"tag {name} does not exist")
-    old = repo.tags[tag]
     del repo.tags[tag]
-    maybe_gc(old)
 
 def rebase(repo, ref):
     head = repo.branches[repo.HEAD]
@@ -135,14 +108,9 @@ def rebase(repo, ref):
     # replay in forward order
     for old in reversed(stack):
         base = Commit(old.value, base)
-        base.refcount = 1
 
     # update branch
-    old_head = repo.branches[repo.HEAD]
     repo.branches[repo.HEAD] = base
-
-    old_head.refcount -= 1
-    maybe_gc(old_head)
 
 def show(repo: Repo, ref: Ref):
     c = resolve(ref, repo)
@@ -157,3 +125,5 @@ def log(repo: Repo, ref: Ref):
         if not c.parent:
             break
         c = c.parent
+
+    print(string)

@@ -4,7 +4,6 @@ from gitscript.commit import Commit
 class Repo:
     def __init__(self):
         root = Commit(0, None)
-        root.refcount = 1
 
         self.branches = {"main": root}
         self.tags = {}
