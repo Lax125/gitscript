@@ -22,7 +22,7 @@ The initial state consists of a single commit with value `0` on the `main` branc
 ### Hello World
 
 ```
-git commit -m "Hello, World!"
+git commit --amend -m "Hello, World!"
 git log
 ```
 
@@ -62,15 +62,17 @@ git show
 <commit-ref> =
     HEAD
   | <branch-name>
+  | <tag-name>
   | <commit-ref>~<non-negative-int>
   | <commit-ref>~<commit-ref>
   | (<commit-ref>)
 ```
 
-### Rules
+### Semantics
 
 * `HEAD` refers to the current branch’s tip
 * `<branch-name>` refers to that branch’s tip
+* `<tag-name>` refers to the commit at the specified tag
 * `~n` moves `n` commits backwards
 * `<ref>~<ref>`:
 
@@ -83,6 +85,18 @@ git show
 ```
 HEAD~(foo~1)
 ```
+
+---
+
+## ↔️ Commit Ranges
+```
+<commit-range> = <commit-ref>..<commit-ref>
+```
+
+### Semantics
+
+`<commit-ref>..<commit-ref>` refers to all commits that are reachable from the RHS commit (including itself), but
+not reachable from the LHS commit. `A..A` refers to an empty range of commits.
 
 ---
 
@@ -124,22 +138,33 @@ Same as above, but inline.
 ### `git branch`
 
 ```
-git branch <name>
+git branch <name> [<commit-ref>]
 ```
 
-Creates a new branch at the current commit.
+Creates a new branch. If a commit is specified, it is created there. Otherwise, it is created at the current commit.
+
+---
+
+### `git branch -d`
+
+```
+git branch -d [<name>]...
+```
+
+Removes existing branches with the specified names.
 
 ---
 
 ### `git checkout`
 
 ```
-git checkout <branch>
-git checkout -b <branch>
+git checkout <branch-name>
+git checkout -b <branch-name> [<commit-ref>]
 ```
 
 * Switch active branch
-* `-b` creates the branch first
+* `-b` creates the branch first, optionally at a specific commit. This is equivalent to
+  `git branch <branch-name> [<commit-ref>]` followed by `git checkout <branch-name>`.
 
 ---
 
@@ -182,11 +207,22 @@ Combines values using a strategy.
 
 ### `git cherry-pick`
 
+TODO: adjust semantics
 ```
 git cherry-pick <commit-ref>
+git cherry-pick <commit-range>
 ```
 
 Creates a new commit with the same value as the referenced commit.
+
+---
+### `git revert`
+
+TODO: semantics
+```
+git revert <commit-ref>
+git revert <commit-range>
+```
 
 ---
 
@@ -213,6 +249,16 @@ Creates a named reference to the current commit.
 
 ---
 
+### `git tag -d`
+
+```
+git tag -d [<name>]...
+```
+
+Removes existing tags with the specified names.
+
+---
+
 ### `git show`
 
 ```
@@ -225,8 +271,11 @@ Prints the value of a commit (default: `HEAD`).
 
 ### `git log`
 
+TODO: Adjust semantics. If a single commit ref is given, the selected commits are all commits reachable from that
+commit.`git log` should have the same behaviour as `git log HEAD`.
 ```
-git log [<commit-ref>]
+git log [-n <non-negative-int>] [--reverse] [<commit-ref>]
+git log [-n <non-negative-int>] [--reverse] <commit-range>
 ```
 
 Prints a string by:
@@ -238,6 +287,17 @@ Prints a string by:
 
    * value `0` (null terminator), or
    * root commit
+
+---
+
+### `git rev-list`
+
+TODO: Semantics. This command should print out the integer value, line by line, of the commit(s) specified. If a single
+commit ref is given, the selected commits are all commits reachable from that commit.
+```
+git rev-list [-n <non-negative-int>] [--reverse] <commit-ref>
+git rev-list [-n <non-negative-int>] [--reverse] <commit-range>
+```
 
 ---
 
