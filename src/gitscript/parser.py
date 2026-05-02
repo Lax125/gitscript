@@ -185,6 +185,12 @@ def _parse_commit(args: list[str], line_number: int, message_is_quoted: bool) ->
             value = args[i + 1]
             value_seen = True
             i += 2
+        elif arg.startswith("-m="):
+            if value_seen:
+                raise ParseError(f"Line {line_number}: git commit accepts only one -m value")
+            value = arg[3:]
+            value_seen = True
+            i += 1
         else:
             raise ParseError(f"Line {line_number}: Unexpected git commit argument: {arg}")
 
@@ -361,8 +367,10 @@ def _commit_message_start(text: str) -> int | None:
     while index != -1:
         before_ok = index == 0 or text[index - 1].isspace()
         after = index + 2
-        after_ok = after == len(text) or text[after].isspace()
+        after_ok = after == len(text) or text[after].isspace() or text[after] == "="
         if before_ok and after_ok:
+            if after < len(text) and text[after] == "=":
+                return after + 1
             while after < len(text) and text[after].isspace():
                 after += 1
             return after

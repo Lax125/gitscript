@@ -52,11 +52,43 @@ class ParserTests(unittest.TestCase):
         self.assertIsInstance(statements[0], CommitString)
         self.assertIsNone(statements[0].value)
 
+    def test_commit_message_option_accepts_space_and_equals_forms(self):
+        statements = parse(
+            """
+            git commit -m 42
+            git commit -m=43
+            git commit -m "forty four"
+            git commit -m="forty five"
+            """
+        )
+
+        self.assertIsInstance(statements[0], Commit)
+        self.assertEqual(statements[0].value, 42)
+        self.assertIsInstance(statements[1], Commit)
+        self.assertEqual(statements[1].value, 43)
+        self.assertIsInstance(statements[2], CommitString)
+        self.assertEqual(statements[2].value, "forty four")
+        self.assertIsInstance(statements[3], CommitString)
+        self.assertEqual(statements[3].value, "forty five")
+
     def test_quoted_numeric_commit_message_is_a_string(self):
         statements = parse('git commit -m "42"')
 
         self.assertIsInstance(statements[0], CommitString)
         self.assertEqual(statements[0].value, "42")
+
+    def test_merge_strategy_option_accepts_space_and_equals_forms(self):
+        statements = parse(
+            """
+            git merge main -s -
+            git merge main -s=-
+            """
+        )
+
+        self.assertIsInstance(statements[0], Merge)
+        self.assertEqual(statements[0].op, Operator.SUBTRACT)
+        self.assertIsInstance(statements[1], Merge)
+        self.assertEqual(statements[1].op, Operator.SUBTRACT)
 
     def test_parse_conflict_block(self):
         statements = parse(
