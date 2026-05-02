@@ -100,10 +100,10 @@ git commit [--amend] [-m <int>]
 
 ---
 
-### `git commit "` (string input)
+### `git commit -m "` (string input)
 
 ```
-git commit "
+git commit -m "
 ```
 
 * Reads a string from stdin
