@@ -90,7 +90,7 @@ class ParserTests(unittest.TestCase):
         self.assertIsInstance(ref.offset_expr, ConstantOffsetRef)
         self.assertIsInstance(ref.offset_expr.base, BranchRef)
         self.assertEqual(ref.offset_expr.base.name, "foo")
-        self.assertEqual(ref.offset_expr.offset, 1)
+        self.assertEqual(ref.offset_expr.value, 1)
 
     def test_parse_reports_line_number(self):
         with self.assertRaisesRegex(ParseError, "Line 3"):

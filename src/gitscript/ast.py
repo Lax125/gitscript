@@ -28,10 +28,10 @@ class DynamicOffsetRef(AncestorRef):
 class ConstantOffsetRef(AncestorRef):
     def __init__(self, base: Ref, offset: int):
         super().__init__(base)
-        self.offset = offset
+        self.offset_value = offset
 
     def offset(self, repo: Repo):
-        return self.offset
+        return self.offset_value
 
 def resolve(ref: Ref, repo: Repo) -> Commit:
     if isinstance(ref, HeadRef):
