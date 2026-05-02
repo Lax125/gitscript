@@ -1,4 +1,4 @@
-from gitscript.ast import resolve, Ref
+from gitscript.refs import resolve, Ref
 from gitscript.commit import Commit
 from gitscript.operators import Operator
 from gitscript.repo import Repo

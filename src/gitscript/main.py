@@ -1,16 +1,79 @@
-# This is a sample Python script.
+import argparse
+import sys
+from collections.abc import Sequence
 
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
-
-
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press Ctrl+F8 to toggle the breakpoint.
+from gitscript.parser import IncompleteInput, ParseError, parse, parse_repl
+from gitscript.repo import Repo
 
 
-# Press the green button in the gutter to run the script.
-if __name__ == '__main__':
-    print_hi('PyCharm')
+def run_statements(source: str, repo: Repo | None = None) -> Repo:
+    if repo is None:
+        repo = Repo()
 
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+    for statement in parse(source):
+        statement.run(repo)
+
+    return repo
+
+
+def run_file(filename: str) -> Repo:
+    with open(filename, encoding="utf-8") as file:
+        return run_statements(file.read())
+
+
+def repl() -> None:
+    repo = Repo()
+    buffer: list[str] = []
+
+    while True:
+        try:
+            line = input("... " if buffer else f"gitscript ({repo.HEAD}) > ")
+        except EOFError:
+            print(flush=True)
+            return
+
+        if not buffer and line.strip() in {"exit", "quit"}:
+            return
+
+        if not buffer and not line.strip():
+            continue
+
+        buffer.append(line)
+        try:
+            statements = parse_repl(buffer)
+        except IncompleteInput:
+            continue
+        except ParseError as exc:
+            print(exc, file=sys.stderr, flush=True)
+            buffer.clear()
+            continue
+
+        try:
+            for statement in statements:
+                statement.run(repo)
+        except Exception as exc:
+            print(exc, file=sys.stderr, flush=True)
+
+        buffer.clear()
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    arg_parser = argparse.ArgumentParser(prog="gitscript", description="Run GitScript programs.")
+    arg_parser.add_argument("filename", nargs="?", help="GitScript file to run. Starts a REPL when omitted.")
+    args = arg_parser.parse_args(argv)
+
+    if args.filename is None:
+        repl()
+        return 0
+
+    try:
+        run_file(args.filename)
+    except (OSError, ParseError, RuntimeError, ValueError) as exc:
+        print(exc, file=sys.stderr, flush=True)
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

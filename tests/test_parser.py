@@ -1,8 +1,8 @@
 import unittest
 
-from gitscript.ast import BranchRef, ConstantOffsetRef, DynamicOffsetRef, HeadRef
+from gitscript.refs import BranchRef, ConstantOffsetRef, DynamicOffsetRef, HeadRef
 from gitscript.operators import Operator
-from gitscript.parser import ParseError, parse
+from gitscript.parser import IncompleteInput, ParseError, parse, parse_repl
 from gitscript.statements import Checkout, Commit, CommitString, Conflict, Log, Merge, Show
 
 
@@ -127,6 +127,20 @@ class ParserTests(unittest.TestCase):
     def test_parse_reports_line_number(self):
         with self.assertRaisesRegex(ParseError, "Line 3"):
             parse("\n\ngit nope")
+
+    def test_repl_parse_reports_incomplete_conflict_blocks(self):
+        with self.assertRaises(IncompleteInput):
+            parse_repl("<<<<<<< a\n    git checkout a\n")
+
+        with self.assertRaises(ParseError):
+            parse("<<<<<<< a\n    git checkout a\n")
+
+    def test_repl_parse_accepts_complete_single_statement(self):
+        statements = parse_repl("git commit -m 5")
+
+        self.assertEqual(len(statements), 1)
+        self.assertIsInstance(statements[0], Commit)
+        self.assertEqual(statements[0].value, 5)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@ import shlex
 from dataclasses import dataclass
 from typing import Iterable
 
-from gitscript.ast import BranchRef, ConstantOffsetRef, DynamicOffsetRef, HeadRef, Ref
+from gitscript.refs import BranchRef, ConstantOffsetRef, DynamicOffsetRef, HeadRef, Ref
 from gitscript.operators import Operator
 from gitscript.statements import (
     Branch,
@@ -25,6 +25,10 @@ class ParseError(ValueError):
     pass
 
 
+class IncompleteInput(ParseError):
+    pass
+
+
 @dataclass
 class _Line:
     number: int
@@ -42,10 +46,22 @@ def parse(source: str | Iterable[str]) -> list[Statement]:
     return parser.parse_program()
 
 
+def parse_repl(source: str | Iterable[str]) -> list[Statement]:
+    if isinstance(source, str):
+        raw_lines = source.splitlines()
+    else:
+        raw_lines = list(source)
+
+    lines = [_Line(i + 1, line.rstrip("\n")) for i, line in enumerate(raw_lines)]
+    parser = _Parser(lines, allow_incomplete=True)
+    return parser.parse_program()
+
+
 class _Parser:
-    def __init__(self, lines: list[_Line]):
+    def __init__(self, lines: list[_Line], allow_incomplete: bool = False):
         self.lines = lines
         self.index = 0
+        self.allow_incomplete = allow_incomplete
 
     def parse_program(self) -> list[Statement]:
         statements = self._parse_block()
@@ -89,6 +105,8 @@ class _Parser:
 
         middle = self._current()
         if middle is None or not middle.text.strip().startswith("======="):
+            if self.allow_incomplete and middle is None:
+                raise IncompleteInput(f"Line {start.number}: Conflict block is missing =======")
             raise self._error(start, "Conflict block is missing =======")
 
         self.index += 1
@@ -96,6 +114,8 @@ class _Parser:
 
         end = self._current()
         if end is None or not end.text.strip().startswith(">>>>>>>"):
+            if self.allow_incomplete and end is None:
+                raise IncompleteInput(f"Line {start.number}: Conflict block is missing >>>>>>>")
             raise self._error(start, "Conflict block is missing >>>>>>>")
 
         ref_b_text = end.text.strip()[7:].strip()

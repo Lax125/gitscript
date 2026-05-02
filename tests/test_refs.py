@@ -1,6 +1,6 @@
 import unittest
 
-from gitscript.ast import (
+from gitscript.refs import (
     AncestorRef,
     BranchRef,
     ConstantOffsetRef,

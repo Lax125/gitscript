@@ -1,6 +1,6 @@
 from typing import Optional
 
-from gitscript.ast import Ref, resolve, HeadRef
+from gitscript.refs import Ref, resolve, HeadRef
 from gitscript.commands import commit, commit_string, branch, checkout, reset, merge, show, log, tag, cherry_pick, rebase
 from gitscript.operators import Operator
 from gitscript.repo import Repo

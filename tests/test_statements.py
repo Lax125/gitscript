@@ -3,7 +3,7 @@ import io
 import unittest
 from unittest.mock import patch
 
-from gitscript.ast import BranchRef, ConstantOffsetRef, HeadRef
+from gitscript.refs import BranchRef, ConstantOffsetRef, HeadRef
 from gitscript.operators import Operator
 from gitscript.repo import Repo
 from gitscript.statements import (
