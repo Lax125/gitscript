@@ -1,7 +1,7 @@
 from typing import Optional
 
 from gitscript.ast import Ref, resolve, HeadRef
-from gitscript.commands import commit, commit_string, branch, checkout, reset, merge, show, log
+from gitscript.commands import commit, commit_string, branch, checkout, reset, merge, show, log, tag, cherry_pick
 from gitscript.operators import Operator
 from gitscript.repo import Repo
 
@@ -32,6 +32,35 @@ class CommitString(Statement):
         else:
             commit_string(repo, self.value, self.amend)
 
+class Merge(Statement):
+    def __init__(self, ref: Ref, op: Operator):
+        self.ref = ref
+        self.op = op
+
+    def run(self, repo: Repo):
+        merge(repo, self.ref, self.op)
+
+class CherryPick(Statement):
+    def __init__(self, ref: Ref):
+        self.ref = ref
+    
+    def run(self, repo: Repo):
+        cherry_pick(repo, self.ref)
+
+class Branch(Statement):
+    def __init__(self, branch_name: str):
+        self.branch_name = branch_name
+
+    def run(self, repo: Repo):
+        branch(repo, self.branch_name)
+
+class Tag(Statement):
+    def __init__(self, tag_name: str):
+        self.tag_name = tag_name
+
+    def run(self, repo: Repo):
+        tag(repo, self.tag_name)
+
 class Checkout(Statement):
     def __init__(self, branch_name: str, create_branch: bool):
         self.branch_name = branch_name
@@ -48,14 +77,6 @@ class Reset(Statement):
 
     def run(self, repo: Repo):
         reset(repo, self.ref)
-
-class Merge(Statement):
-    def __init__(self, ref: Ref, op: Operator):
-        self.ref = ref
-        self.op = op
-
-    def run(self, repo: Repo):
-        merge(repo, self.ref, self.op)
 
 class Show(Statement):
     def __init__(self, ref: Ref = HeadRef()):
