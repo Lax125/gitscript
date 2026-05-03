@@ -19,6 +19,23 @@ class ExampleTests(unittest.TestCase):
         self.assertEqual(run_example("palindrome.gs", ["abc"]), "abc is not a palindrome.\n")
         self.assertEqual(run_example("palindrome.gs", ["a"]), "a is a palindrome.\n")
 
+    def test_fibonacci(self):
+        self.assertEqual(run_example("fibonacci.gs", ["0"]), "")
+        self.assertEqual(run_example("fibonacci.gs", ["8"]), "0\n1\n1\n2\n3\n5\n8\n13\n")
+
+    def test_collatz(self):
+        self.assertEqual(run_example("collatz.gs", ["6"]), "6\n3\n10\n5\n16\n8\n4\n2\n1\n")
+
+    def test_primes(self):
+        self.assertEqual(run_example("primes.gs", ["1"]), "")
+        self.assertEqual(run_example("primes.gs", ["20"]), "2\n3\n5\n7\n11\n13\n17\n19\n")
+
+    def test_reverse_words(self):
+        self.assertEqual(run_example("reverse_words.gs", [""]), "\n")
+        self.assertEqual(run_example("reverse_words.gs", ["solo"]), "solo\n")
+        self.assertEqual(run_example("reverse_words.gs", ["hello world"]), "world hello\n")
+        self.assertEqual(run_example("reverse_words.gs", ["one two three"]), "three two one\n")
+
 
 if __name__ == '__main__':
     unittest.main()
