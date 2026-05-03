@@ -1,57 +1,61 @@
-git tag root  # 0
+git tag root
 
 git checkout -b input
 git commit -m "
 git tag original_input
+
 git checkout -b reverted_input root
 git revert root..input
 
-# Example input: "cba"
+# Example input: "aba"
 #
 # (root)
-#   0  <-  'c'  <-  'b'  <-  'a' (input, original_input)
-#      <- -'a'  <- -'b'  <- -'c' (reverted_input)
+#   'a' <- 'b' <- 'a' (input, original_input)
+#   -'a' <- -'b' <- -'a' (reverted_input)
+#
+# The two walking branches eventually collide at root. A mismatch resets both
+# walkers to root so the loop exits early.
 
-git branch num_differences root
 git branch difference root
+
+git merge -s is
 <<<<<<< input
+    # input and reverted_input point at the same commit, so every compared pair
+    # matched or an earlier mismatch forced both branches to root.
+    git merge --abort
+=======
     git checkout difference
     git reset root
-    git merge input
-    git merge reverted_input
-    git merge root -s !=
+    git cherry-pick input
+    git cherry-pick reverted_input -s=+
 
+    git merge -s ==
     <<<<<<< difference
-        git checkout num_differences
-        git merge difference
+        # Characters match. Advance both walkers.
+        git checkout input
+        git reset HEAD~1
+        git checkout reverted_input
+        git reset HEAD~1
+    =======
+        # Mismatch. Mark the difference and force the outer loop to finish.
         git checkout difference
         git reset root
-    =======
-        # difference = -1, indicating characters match
-        git checkout difference
+        git commit -m 1
+        git checkout input
+        git reset root
+        git checkout reverted_input
         git reset root
     >>>>>>> root
-
-    git checkout input
-    git reset HEAD~1
-    git checkout reverted_input
-    git reset HEAD~1
-=======
-    # should never execute because reverted_input should be negative for each character
+    git merge --continue
 >>>>>>> reverted_input
 
-git checkout -b check root
-git cherry-pick num_differences
-git merge root -s ==
-git checkout -b message root
-<<<<<<< check
+git merge -s ==
+<<<<<<< difference
+    git checkout -b message root
     git commit -m " is a palindrome."
-    git checkout check
-    git reset root
 =======
+    git checkout -b message root
     git commit -m " is not a palindrome."
-    git checkout check
-    git reset root
 >>>>>>> root
 
 git checkout message
