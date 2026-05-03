@@ -1,4 +1,7 @@
-from gitscript.refs import resolve, Ref
+from typing import Optional
+
+from gitscript.commit_range import CommitRange
+from gitscript.refs import resolve, Ref, HeadRef
 from gitscript.commit import Commit
 from gitscript.operators import Operator
 from gitscript.repo import Repo
@@ -30,15 +33,21 @@ def commit_string(repo: Repo, value: str, amend=False):
     repo.branches[repo.HEAD] = new
 
 def cherry_pick(repo: Repo, ref: Ref):
-    c = resolve(ref, repo)
+    c = ref.resolve(repo)
     commit(repo, c.value)
 
-def revert(repo: Repo):
-    c = repo.branches[repo.HEAD]
-    if c.parent:
-        commit(repo, c.parent.value)
-    else:
-        commit(repo, 0)
+def cherry_pick_range(repo: Repo, commit_range: CommitRange):
+    # reverse resolved range to get back chronological ordering
+    for c in commit_range.resolve(repo)[::-1]:
+        commit(repo, c.value)
+
+def revert(repo: Repo, ref: Ref):
+    c = ref.resolve(repo)
+    commit(repo, -c.value)
+
+def revert_range(repo: Repo, commit_range: CommitRange):
+    for c in commit_range.resolve(repo):
+        commit(repo, -c.value)
 
 def merge(repo, ref, op: Operator):
     a = repo.branches[repo.HEAD].value
@@ -63,11 +72,18 @@ def merge(repo, ref, op: Operator):
 def reset(repo, ref):
     repo.branches[repo.HEAD] = resolve(ref, repo)
 
-def branch(repo: Repo, name: str):
+def branch(repo: Repo, name: str, ref: Ref = HeadRef()):
     if repo.has(name):
         raise RuntimeError(f"Branch or tag {name} already exists")
-    c = repo.branches[repo.HEAD]
+    c = resolve(ref, repo)
     repo.branches[name] = c
+
+def delete_branch(repo: Repo, name: str):
+    if repo.HEAD == name:
+        raise RuntimeError(f"Cannot delete current branch {name}")
+    elif not repo.has(name):
+        raise RuntimeError(f"Branch {name} does not exist")
+    del repo.branches[repo.HEAD]
 
 def checkout(repo: Repo, name: str):
     if name not in repo.branches:
@@ -80,7 +96,7 @@ def tag(repo: Repo, name: str):
     c = repo.branches[repo.HEAD]
     repo.tags[name] = c
 
-def untag(repo: Repo, name: str):
+def delete_tag(repo: Repo, name: str):
     if tag not in repo.tags:
         raise RuntimeError(f"tag {name} does not exist")
     del repo.tags[tag]
@@ -116,7 +132,8 @@ def show(repo: Repo, ref: Ref):
     c = resolve(ref, repo)
     print(c.value)
 
-def log(repo: Repo, ref: Ref):
+def log(repo: Repo, ref: Ref, limit: Optional[int] = None, reverse: bool = False):
+    # TODO adjust behavior to match spec
     c = resolve(ref, repo)
     string = ""
 
@@ -127,3 +144,12 @@ def log(repo: Repo, ref: Ref):
         c = c.parent
 
     print(string)
+
+def log_range(repo: Repo, commit_range: CommitRange, limit: Optional[int] = None, reverse: bool = False):
+    pass # TODO implement
+
+def rev_list(repo: Repo, ref: Ref, limit: Optional[int] = None, reverse: bool = False):
+    pass # TODO implement
+
+def rev_list_range(repo: Repo, commit_range: CommitRange, limit: Optional[int] = None, reverse: bool = False):
+    pass # TODO implement

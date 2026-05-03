@@ -105,6 +105,61 @@ HEAD~(foo~1)
 
 ## ⚙️ Commands
 
+### `git branch`
+
+```
+git branch <name> [<commit-ref>]
+```
+
+Creates a new branch.
+
+* If a commit is specified, the branch points there
+* Otherwise, it points to the current commit
+
+---
+
+### `git branch -d`
+
+```
+git branch -d [<branch-name>]...
+```
+
+Deletes the specified branches.
+
+---
+
+### `git tag`
+
+```
+git tag <name>
+```
+
+Creates a named reference to the current commit.
+
+---
+
+### `git tag -d`
+
+```
+git tag -d [<tag-name>]...
+```
+
+Deletes the specified tags.
+
+---
+
+### `git checkout`
+
+```
+git checkout <branch-name>
+git checkout -b <branch-name> [<commit-ref>]
+```
+
+* Switch active branch
+* `-b` creates the branch first
+
+---
+
 ### `git commit` (integer)
 
 ```
@@ -132,41 +187,6 @@ git commit -m "
 ### `git commit -m "string"`
 
 Same as above, but inline.
-
----
-
-### `git branch`
-
-```
-git branch <name> [<commit-ref>]
-```
-
-Creates a new branch.
-
-* If a commit is specified, the branch points there
-* Otherwise, it points to the current commit
-
----
-
-### `git branch -d`
-
-```
-git branch -d [<branch-name>]...
-```
-
-Deletes the specified branches.
-
----
-
-### `git checkout`
-
-```
-git checkout <branch-name>
-git checkout -b <branch-name> [<commit-ref>]
-```
-
-* Switch active branch
-* `-b` creates the branch first
 
 ---
 
@@ -244,26 +264,6 @@ Replays commits from the current branch onto the target commit.
 
 * Only values are replayed
 * Original control flow is not preserved
-
----
-
-### `git tag`
-
-```
-git tag <name>
-```
-
-Creates a named reference to the current commit.
-
----
-
-### `git tag -d`
-
-```
-git tag -d [<tag-name>]...
-```
-
-Deletes the specified tags.
 
 ---
 

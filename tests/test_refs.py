@@ -14,26 +14,13 @@ from gitscript.repo import Repo
 
 
 class RefTests(unittest.TestCase):
-    def test_unknown_ref_type_raises_runtime_error(self):
-        repo = Repo()
-
-        with self.assertRaisesRegex(RuntimeError, "Unknown ref type"):
-            resolve(Ref(), repo)
-
-    def test_head_ref_resolves_current_branch_tip(self):
-        repo = Repo()
-        commit(repo, 7)
-
-        self.assertIs(resolve(HeadRef(), repo), repo.branches["main"])
-        self.assertEqual(resolve(HeadRef(), repo).value, 7)
-
     def test_branch_ref_resolves_branch_tip(self):
         repo = Repo()
         commit(repo, 3)
         branch(repo, "three")
         commit(repo, 8)
 
-        resolved = resolve(BranchRef("three"), repo)
+        resolved = BranchRef("three").resolve(repo)
 
         self.assertIs(resolved, repo.branches["three"])
         self.assertEqual(resolved.value, 3)
@@ -44,7 +31,7 @@ class RefTests(unittest.TestCase):
         tag(repo, "eleven")
         commit(repo, 12)
 
-        resolved = resolve(BranchRef("eleven"), repo)
+        resolved = BranchRef("eleven").resolve(repo)
 
         self.assertIs(resolved, repo.tags["eleven"])
         self.assertEqual(resolved.value, 11)
@@ -62,7 +49,7 @@ class RefTests(unittest.TestCase):
         commit(repo, 30)
 
         ref = ConstantOffsetRef(HeadRef(), 2)
-        resolved = resolve(ref, repo)
+        resolved = ref.resolve(repo)
 
         self.assertEqual(ref.offset_value, 2)
         self.assertEqual(ref.offset(repo), 2)
@@ -72,7 +59,7 @@ class RefTests(unittest.TestCase):
         repo = Repo()
         commit(repo, 4)
 
-        resolved = resolve(ConstantOffsetRef(HeadRef(), 99), repo)
+        resolved = ConstantOffsetRef(HeadRef(), 99).resolve(repo)
 
         self.assertEqual(resolved.value, 0)
         self.assertIsNone(resolved.parent)
@@ -90,7 +77,7 @@ class RefTests(unittest.TestCase):
         checkout(repo, "numbers")
 
         ref = DynamicOffsetRef(HeadRef(), BranchRef("offset"))
-        resolved = resolve(ref, repo)
+        resolved = ref.resolve(repo)
 
         self.assertIsInstance(ref, AncestorRef)
         self.assertIsInstance(ref.offset_expr, BranchRef)
@@ -108,7 +95,7 @@ class RefTests(unittest.TestCase):
         ref = DynamicOffsetRef(HeadRef(), BranchRef("negative"))
 
         with self.assertRaisesRegex(RuntimeError, "Negative offset"):
-            resolve(ref, repo)
+            ref.resolve(repo)
 
 
 if __name__ == "__main__":

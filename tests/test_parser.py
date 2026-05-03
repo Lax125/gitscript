@@ -33,7 +33,7 @@ class ParserTests(unittest.TestCase):
 
         self.assertIsInstance(statements[3], Checkout)
         self.assertEqual(statements[3].branch_name, "feature")
-        self.assertTrue(statements[3].create_branch)
+        self.assertIsInstance(statements[3].create_at, HeadRef)
 
         self.assertIsInstance(statements[4], Merge)
         self.assertIsInstance(statements[4].ref, BranchRef)

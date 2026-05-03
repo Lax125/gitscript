@@ -152,16 +152,18 @@ def _parse_statement(line: _Line) -> Statement:
     command = parts[1]
     args = parts[2:]
 
+    # TODO support revert and rev-list
     if command == "commit":
         return _parse_commit(args, line.number, _commit_message_is_quoted(raw))
     if command == "branch":
         _expect_count(args, 1, line.number, "git branch")
         return Branch(args[0])
     if command == "checkout":
+        # TODO: handle optional commitref to create branch at
         if len(args) == 2 and args[0] == "-b":
-            return Checkout(args[1], True)
+            return Checkout(args[1], HeadRef())
         _expect_count(args, 1, line.number, "git checkout")
-        return Checkout(args[0], False)
+        return Checkout(args[0])
     if command == "reset":
         _expect_count(args, 1, line.number, "git reset")
         return Reset(_parse_ref(args[0], line.number))

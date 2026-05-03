@@ -114,9 +114,9 @@ class StatementTests(unittest.TestCase):
         repo = Repo()
         Commit(1, amend=False).run(repo)
 
-        Checkout("feature", create_branch=True).run(repo)
+        Checkout("feature", create_at=HeadRef()).run(repo)
         Commit(2, amend=False).run(repo)
-        Checkout("main", create_branch=False).run(repo)
+        Checkout("main").run(repo)
 
         self.assertEqual(repo.HEAD, "main")
         self.assertEqual(repo.branches["main"].value, 1)
@@ -158,12 +158,12 @@ class StatementTests(unittest.TestCase):
     def test_rebase_replays_current_branch_values_onto_ref(self):
         repo = Repo()
         Commit(1, amend=False).run(repo)
-        Checkout("feature", create_branch=True).run(repo)
+        Checkout("feature", create_at=HeadRef()).run(repo)
         Commit(2, amend=False).run(repo)
         Commit(3, amend=False).run(repo)
-        Checkout("main", create_branch=False).run(repo)
+        Checkout("main").run(repo)
         Commit(9, amend=False).run(repo)
-        Checkout("feature", create_branch=False).run(repo)
+        Checkout("feature").run(repo)
 
         Rebase(BranchRef("main")).run(repo)
 
@@ -189,16 +189,16 @@ class StatementTests(unittest.TestCase):
 
     def test_conflict_runs_blocks_until_ref_values_match(self):
         repo = Repo()
-        Checkout("a", create_branch=True).run(repo)
+        Checkout("a", create_at=HeadRef()).run(repo)
         Commit(48, amend=False).run(repo)
-        Checkout("b", create_branch=True).run(repo)
+        Checkout("b", create_at=HeadRef()).run(repo)
         Commit(18, amend=False).run(repo)
 
         Conflict(
             BranchRef("a"),
-            [Checkout("a", create_branch=False), Merge(BranchRef("b"), Operator.SUBTRACT)],
+            [Checkout("a"), Merge(BranchRef("b"), Operator.SUBTRACT)],
             BranchRef("b"),
-            [Checkout("b", create_branch=False), Merge(BranchRef("a"), Operator.SUBTRACT)],
+            [Checkout("b"), Merge(BranchRef("a"), Operator.SUBTRACT)],
         ).run(repo)
 
         self.assertEqual(repo.branches["a"].value, 6)

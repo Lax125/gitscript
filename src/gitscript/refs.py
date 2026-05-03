@@ -3,15 +3,36 @@ from gitscript.repo import Repo
 
 
 class Ref:
-    pass
+    def resolve(self, repo: Repo) -> Commit:
+        pass
 
-class HeadRef(Ref): pass
+class HeadRef(Ref):
+    def resolve(self, repo: Repo) -> Commit:
+        return repo.resolve(repo.HEAD)
+
 class BranchRef(Ref):
     def __init__(self, name: str): self.name = name
+
+    def resolve(self, repo: Repo) -> Commit:
+        return repo.resolve(self.name)
 
 class AncestorRef(Ref):
     def __init__(self, base: Ref):
         self.base = base
+
+    def resolve(self, repo: Repo) -> Commit:
+        base_commit = resolve(self.base, repo)
+        offset = self.offset(repo)
+
+        if offset < 0:
+            raise RuntimeError("Negative offset")
+
+        c = base_commit
+        for _ in range(offset):
+            if c.parent is None:
+                return c  # stop at root
+            c = c.parent
+        return c
 
     def offset(self, repo: Repo) -> int:
         pass
