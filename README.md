@@ -22,8 +22,9 @@ The initial state consists of a single commit with value `0` on the `main` branc
 ### Hello World
 
 ```
-git commit --amend -m "Hello, World!"
-git log
+git tag root
+git commit -m "Hello, World!"
+git log root..HEAD
 ```
 
 Outputs:

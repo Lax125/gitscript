@@ -21,6 +21,7 @@ def commit_string(repo: Repo, value: str, amend=False):
     head = repo.branches[repo.HEAD]
 
     parent = head.parent if amend else head
+    new = parent
 
     for char in value[::-1]:
         new = Commit(ord(char), parent)
@@ -142,26 +143,26 @@ def rev_list_range(repo: Repo, commit_range: CommitRange, limit: Optional[int] =
     _print_values(_select_commits(commit_range.resolve(repo), limit, reverse))
 
 
-def _reachable_commits(commit: Commit) -> list[Commit]:
+def _reachable_commits(c: Commit) -> list[Commit]:
     commits = []
-    while commit is not None:
-        commits.append(commit)
-        commit = commit.parent
+    while c is not None:
+        commits.append(c)
+        c = c.parent
     return commits
 
 
 def _select_commits(commits: list[Commit], limit: Optional[int], reverse: bool) -> list[Commit]:
-    if reverse:
-        commits = commits[::-1]
     if limit is not None:
         commits = commits[:limit]
+    if reverse:
+        commits = commits[::-1]
     return commits
 
 
 def _commits_to_string(commits: list[Commit]) -> str:
-    return "".join(chr(commit.value) for commit in commits if commit.value != 0)
+    return "".join(chr(c.value) for c in commits)
 
 
 def _print_values(commits: list[Commit]) -> None:
-    for commit in commits:
-        print(commit.value)
+    for c in commits:
+        print(c.value)

@@ -85,17 +85,27 @@ class StatementTests(unittest.TestCase):
         repo = Repo()
         root = repo.branches["main"]
 
-        CommitString("Hi", amend=False).run(repo)
+        CommitString("Hi").run(repo)
 
         head = repo.branches["main"]
         self.assertEqual(values_from_head(repo), [ord("H"), ord("i"), 0])
         self.assertIs(head.parent.parent, root)
 
+    def test_commit_string_can_handle_empty_string(self):
+        repo = Repo()
+        root = repo.branches["main"]
+
+        CommitString("").run(repo)
+
+        head = repo.branches["main"]
+        self.assertEqual(values_from_head(repo), [0])
+        self.assertIs(head, root)
+
     def test_commit_string_can_read_value_from_input(self):
         repo = Repo()
 
         with patch("builtins.input", return_value="Yo"):
-            CommitString(None, amend=False).run(repo)
+            CommitString(None).run(repo)
 
         self.assertEqual(values_from_head(repo)[:2], [ord("Y"), ord("o")])
 
@@ -190,7 +200,7 @@ class StatementTests(unittest.TestCase):
 
     def test_log_prints_string_from_selected_commit_chain(self):
         repo = Repo()
-        CommitString("Ok", amend=False).run(repo)
+        CommitString("Ok").run(repo)
 
         output = capture_output(LogRange(CommitRange(ConstantOffsetRef(HeadRef(), 2), HeadRef())), repo)
 
@@ -204,7 +214,7 @@ class StatementTests(unittest.TestCase):
 
         output = capture_output(Log(HeadRef(), limit=2, reverse=True), repo)
 
-        self.assertEqual(output, "A\n")
+        self.assertEqual(output, "BC\n")
 
     def test_rev_list_prints_values(self):
         repo = Repo()

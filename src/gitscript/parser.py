@@ -148,7 +148,9 @@ def _parse_statement(line: _Line) -> Statement:
     raw = _strip_comment(line.text).strip()
 
     if _is_commit_string_input(raw):
-        return CommitString(None, "--amend" in raw.split())
+        if "--amend" in raw.split():
+            raise ParseError(f"Line {line.number}: --amend is not allowed for string input commit")
+        return CommitString(None)
 
     try:
         parts = shlex.split(raw, posix=True)
@@ -261,7 +263,9 @@ def _parse_commit(args: list[str], line_number: int, message_is_quoted: bool) ->
         return Commit(None, amend)
 
     if message_is_quoted:
-        return CommitString(str(value), amend)
+        if amend:
+            raise ParseError(f"Line {line_number}: --amend is not allowed for string commits")
+        return CommitString(str(value))
 
     try:
         return Commit(int(value), amend)

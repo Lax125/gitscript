@@ -65,15 +65,14 @@ class Commit(Statement):
             commit(repo, self.value, self.amend)
 
 class CommitString(Statement):
-    def __init__(self, value: Optional[str], amend: bool):
+    def __init__(self, value: Optional[str]):
         self.value = value
-        self.amend = amend
 
     def run(self, repo: Repo):
         if self.value is None:
-            commit_string(repo, input(), self.amend)
+            commit_string(repo, input())
         else:
-            commit_string(repo, self.value, self.amend)
+            commit_string(repo, self.value)
 
 class Reset(Statement):
     def __init__(self, ref: Ref):

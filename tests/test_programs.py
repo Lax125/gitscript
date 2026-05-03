@@ -37,7 +37,7 @@ class StatementExecutionTests(unittest.TestCase):
         repo, output = run_program(
             """
             git commit -m "Hello"
-            git log
+            git log -n 5
             """
         )
 
@@ -47,8 +47,9 @@ class StatementExecutionTests(unittest.TestCase):
     def test_hello_world_readme_example(self):
         repo, output = run_program(
             """
-            git commit --amend -m "Hello, World!"
-            git log
+            git tag root
+            git commit -m "Hello, World!"
+            git log root..HEAD
             """
         )
 
