@@ -14,11 +14,13 @@ class Statement:
 
 
 class MergeContinueSignal(Exception):
-    pass
+    def __init__(self, label: Optional[str] = None):
+        self.label = label
 
 
 class MergeAbortSignal(Exception):
-    pass
+    def __init__(self, label: Optional[str] = None):
+        self.label = label
 
 class Branch(Statement):
     def __init__(self, branch_name: str, ref: Ref = HeadRef()):
@@ -173,13 +175,19 @@ class RevListRange(Statement):
 
 
 class MergeContinue(Statement):
+    def __init__(self, label: Optional[str] = None):
+        self.label = label
+
     def run(self, repo: Repo):
-        raise MergeContinueSignal()
+        raise MergeContinueSignal(self.label)
 
 
 class MergeAbort(Statement):
+    def __init__(self, label: Optional[str] = None):
+        self.label = label
+
     def run(self, repo: Repo):
-        raise MergeAbortSignal()
+        raise MergeAbortSignal(self.label)
 
 class Conflict(Statement):
     def __init__(
@@ -189,12 +197,14 @@ class Conflict(Statement):
             block_a: list[Statement],
             block_b: list[Statement],
             condition: Condition = Condition.EQ,
+            label: Optional[str] = None,
     ):
         self.ref_a = ref_a
         self.ref_b = ref_b
         self.block_a = block_a
         self.block_b = block_b
         self.condition = condition
+        self.label = label
 
     def run(self, repo: Repo):
         while True:
@@ -205,9 +215,13 @@ class Conflict(Statement):
             try:
                 for statement in block:
                     statement.run(repo)
-            except MergeContinueSignal:
+            except MergeContinueSignal as signal:
+                if signal.label is not None and signal.label != self.label:
+                    raise
                 continue
-            except MergeAbortSignal:
+            except MergeAbortSignal as signal:
+                if signal.label is not None and signal.label != self.label:
+                    raise
                 break
 
             break

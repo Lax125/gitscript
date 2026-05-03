@@ -51,7 +51,7 @@ git branch real_start root
 
 # Walk each pair of fenceposts. Later words are committed on top of earlier
 # output, which reverses word order because logs read from HEAD backward.
-git merge -s >
+git merge -s > words
 <<<<<<< depth
     git checkout next_depth
     git reset depth
@@ -77,8 +77,7 @@ git merge -s >
 
     git merge -s is
     <<<<<<< end
-        git checkout depth
-        git reset root
+        git merge --abort words
     =======
         git checkout output
         git cherry-pick space

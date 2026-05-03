@@ -258,6 +258,52 @@ class ProgramTests(unittest.TestCase):
         self.assertEqual(repo.branches["counter"].value, 0)
         self.assertEqual(repo.branches["main"].value, 1)
 
+    def test_labeled_merge_continue_and_abort_target_outer_conflicts(self):
+        repo, output = run_program(
+            """
+            git checkout -b counter
+            git commit -m 2
+            git checkout -b one
+            git commit -m 1
+            git checkout main
+
+            git merge -s > loop
+            <<<<<<< counter
+                git merge -s is inner
+                <<<<<<< main
+                    git checkout counter
+                    git cherry-pick one -s=-
+                    git merge --continue loop
+                =======
+                    git merge --abort
+                >>>>>>> main
+            =======
+                git merge --abort
+            >>>>>>> main
+
+            git show counter
+
+            git merge -s > exit
+            <<<<<<< counter
+                git merge --abort
+            =======
+                git merge -s is inner
+                <<<<<<< main
+                    git merge --abort exit
+                =======
+                    git commit -m 9
+                >>>>>>> main
+                git commit -m 8
+            >>>>>>> counter
+
+            git show main
+            """
+        )
+
+        self.assertEqual(output, "0\n0\n")
+        self.assertEqual(repo.branches["counter"].value, 0)
+        self.assertEqual(repo.branches["main"].value, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -139,6 +139,26 @@ class ParserTests(unittest.TestCase):
     def test_parse_merge_continue_and_abort(self):
         statements = parse(
             """
+            git merge -s is loop
+            <<<<<<< a
+                git merge --continue loop
+            =======
+                git merge --abort loop
+            >>>>>>> b
+            """
+        )
+
+        conflict = statements[0]
+        self.assertEqual(conflict.condition, Condition.IS)
+        self.assertEqual(conflict.label, "loop")
+        self.assertIsInstance(conflict.block_a[0], MergeContinue)
+        self.assertEqual(conflict.block_a[0].label, "loop")
+        self.assertIsInstance(conflict.block_b[0], MergeAbort)
+        self.assertEqual(conflict.block_b[0].label, "loop")
+
+    def test_parse_unlabeled_merge_continue_and_abort(self):
+        statements = parse(
+            """
             git merge -s is
             <<<<<<< a
                 git merge --continue
@@ -149,9 +169,9 @@ class ParserTests(unittest.TestCase):
         )
 
         conflict = statements[0]
-        self.assertEqual(conflict.condition, Condition.IS)
-        self.assertIsInstance(conflict.block_a[0], MergeContinue)
-        self.assertIsInstance(conflict.block_b[0], MergeAbort)
+        self.assertIsNone(conflict.label)
+        self.assertIsNone(conflict.block_a[0].label)
+        self.assertIsNone(conflict.block_b[0].label)
 
     def test_parse_branch_delete_and_create_at_ref(self):
         statements = parse(

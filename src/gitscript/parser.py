@@ -48,6 +48,7 @@ class _Line:
 @dataclass
 class _MergeStart:
     condition: Condition
+    label: str | None = None
 
 
 def parse(source: str | Iterable[str]) -> list[Statement]:
@@ -113,13 +114,13 @@ class _Parser:
                     raise self._error(line, "git merge needs a conflict block")
                 if not conflict_start.text.strip().startswith("<<<<<<<"):
                     raise self._error(conflict_start, "git merge must be followed by a conflict block")
-                statements.append(self._parse_conflict(conflict_start, statement.condition))
+                statements.append(self._parse_conflict(conflict_start, statement.condition, statement.label))
             else:
                 statements.append(statement)
 
         return statements
 
-    def _parse_conflict(self, start: _Line, condition: Condition) -> Conflict:
+    def _parse_conflict(self, start: _Line, condition: Condition, label: str | None) -> Conflict:
         ref_a_text = start.text.strip()[7:].strip()
         if not ref_a_text:
             raise self._error(start, "Conflict start marker needs a commit reference")
@@ -147,7 +148,14 @@ class _Parser:
             raise self._error(end, "Conflict end marker needs a commit reference")
 
         self.index += 1
-        return Conflict(_parse_ref(ref_a_text, start.number), _parse_ref(ref_b_text, end.number), block_a, block_b, condition)
+        return Conflict(
+            _parse_ref(ref_a_text, start.number),
+            _parse_ref(ref_b_text, end.number),
+            block_a,
+            block_b,
+            condition,
+            label,
+        )
 
     def _current(self) -> _Line | None:
         if self.index >= len(self.lines):
@@ -319,15 +327,16 @@ def _parse_cherry_pick(args: list[str], line_number: int) -> CherryPick | Cherry
 
 def _parse_merge(args: list[str], line_number: int) -> Statement | _MergeStart:
     condition = Condition.EQ
+    label = None
     i = 0
     while i < len(args):
         arg = args[i]
         if arg == "--continue":
-            _expect_count(args, 1, line_number, "git merge --continue")
-            return MergeContinue()
+            _expect_count(args, (1, 2), line_number, "git merge --continue")
+            return MergeContinue(_parse_merge_signal_label(args, line_number, "git merge --continue"))
         if arg == "--abort":
-            _expect_count(args, 1, line_number, "git merge --abort")
-            return MergeAbort()
+            _expect_count(args, (1, 2), line_number, "git merge --abort")
+            return MergeAbort(_parse_merge_signal_label(args, line_number, "git merge --abort"))
         if arg == "-s":
             if i + 1 >= len(args):
                 raise ParseError(f"Line {line_number}: git merge -s needs a condition")
@@ -336,10 +345,23 @@ def _parse_merge(args: list[str], line_number: int) -> Statement | _MergeStart:
         elif arg.startswith("-s="):
             condition = _parse_condition(arg[3:], line_number)
             i += 1
-        else:
+        elif arg.startswith("-"):
             raise ParseError(f"Line {line_number}: Unexpected git merge argument: {arg}")
+        else:
+            if label is not None:
+                raise ParseError(f"Line {line_number}: git merge accepts only one label")
+            label = arg
+            i += 1
 
-    return _MergeStart(condition)
+    return _MergeStart(condition, label)
+
+
+def _parse_merge_signal_label(args: list[str], line_number: int, command: str) -> str | None:
+    if len(args) == 1:
+        return None
+    if args[1].startswith("-"):
+        raise ParseError(f"Line {line_number}: Unexpected {command} argument: {args[1]}")
+    return args[1]
 
 
 def _parse_operator(text: str, line_number: int) -> Operator:

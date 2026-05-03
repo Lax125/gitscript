@@ -18,7 +18,7 @@ git revert root..input
 
 git branch difference root
 
-git merge -s is
+git merge -s is compare
 <<<<<<< input
     # input and reverted_input point at the same commit, so every compared pair
     # matched or an earlier mismatch forced both branches to root.
@@ -41,10 +41,7 @@ git merge -s is
         git checkout difference
         git reset root
         git commit -m 1
-        git checkout input
-        git reset root
-        git checkout reverted_input
-        git reset root
+        git merge --abort compare
     >>>>>>> root
     git merge --continue
 >>>>>>> reverted_input

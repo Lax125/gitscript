@@ -194,14 +194,16 @@ Example: cherry-picking values `[1, 2, 3]` onto a current value of `5` with `-s=
 ### `git merge`
 
 ```gitscript
-git merge [-s <condition>]
-git merge --continue
-git merge --abort
+git merge [-s <condition>] [<label>]
+git merge --continue [<label>]
+git merge --abort [<label>]
 ```
 
 Controls merge-conflict blocks.
 
 `git merge` starts the following merge-conflict block. `-s` selects the condition used to choose between the two sides.
+
+The optional positional `<label>` names the merge block. This uses the argument position that real Git uses for the commit being merged.
 
 If no condition is specified, the condition is `==`.
 
@@ -220,7 +222,7 @@ Conditions are separate from value-combining cherry-pick strategies:
 #### Execution
 
 ```gitscript
-git merge [-s <condition>]
+git merge [-s <condition>] [<label>]
 <<<<<<< A
     ...
 =======
@@ -232,8 +234,10 @@ git merge [-s <condition>]
 2. If `A <condition> B` is true, run the top block.
 3. Otherwise, run the bottom block.
 4. Reaching the end of the selected block exits the control structure.
-5. `git merge --continue` jumps back to step 1.
+5. `git merge --continue` jumps back to step 1 of the current control structure.
 6. `git merge --abort` skips to the end of the current control structure immediately.
+7. `git merge --continue <label>` jumps back to the matching labeled merge block, even through nested merge blocks.
+8. `git merge --abort <label>` skips to the end of the matching labeled merge block, even through nested merge blocks.
 
 This makes loops explicit: use `git merge --continue` when a selected side should repeat. One-shot conditional behavior is the default because falling out of a side exits.
 
@@ -317,7 +321,7 @@ Prints commit values (integers), one per line.
 GitScript uses merge conflict syntax for control flow:
 
 ```gitscript
-git merge [-s <condition>]
+git merge [-s <condition>] [<label>]
 <<<<<<< A
     ...
 =======
@@ -332,6 +336,8 @@ Merge-conflict blocks are controlled by `git merge`.
 * `git merge` starts the block and chooses the condition
 * `git merge --continue` repeats the block
 * `git merge --abort` exits the block
+* `git merge --continue <label>` repeats the matching labeled block
+* `git merge --abort <label>` exits the matching labeled block
 * The conflict markers provide the two commit references compared by the condition
 
 ---

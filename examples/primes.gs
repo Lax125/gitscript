@@ -22,8 +22,8 @@ git merge -s <=
     git reset primes
 
     # Walk known primes. A zero remainder marks the candidate composite and
-    # resets walker to root, ending this inner loop early.
-    git merge -s is
+    # aborts this inner loop early.
+    git merge -s is walk_primes
     <<<<<<< walker
         git merge --abort
     =======
@@ -36,8 +36,7 @@ git merge -s <=
             git checkout composite
             git reset root
             git commit -m 1
-            git checkout walker
-            git reset root
+            git merge --abort walk_primes
         =======
             git checkout walker
             git reset HEAD~1

@@ -334,6 +334,65 @@ class StatementTests(unittest.TestCase):
 
         self.assertEqual(repo.branches["counter"].value, 0)
 
+    def test_labeled_continue_can_repeat_outer_conflict(self):
+        repo = Repo()
+        Checkout("counter", create_at=HeadRef()).run(repo)
+        Commit(2, amend=False).run(repo)
+        Checkout("one", create_at=HeadRef()).run(repo)
+        Commit(1, amend=False).run(repo)
+        Checkout("main").run(repo)
+
+        inner = Conflict(
+            BranchRef("main"),
+            BranchRef("main"),
+            [
+                Checkout("counter"),
+                CherryPick(BranchRef("one"), Operator.SUBTRACT),
+                MergeContinue("outer"),
+            ],
+            [MergeAbort()],
+            Condition.IS,
+            label="inner",
+        )
+
+        Conflict(
+            BranchRef("counter"),
+            BranchRef("main"),
+            [inner],
+            [MergeAbort()],
+            Condition.GT,
+            label="outer",
+        ).run(repo)
+
+        self.assertEqual(repo.branches["counter"].value, 0)
+
+    def test_labeled_abort_can_exit_outer_conflict(self):
+        repo = Repo()
+        Checkout("counter", create_at=HeadRef()).run(repo)
+        Commit(2, amend=False).run(repo)
+        Checkout("main").run(repo)
+
+        inner = Conflict(
+            BranchRef("main"),
+            BranchRef("main"),
+            [MergeAbort("outer")],
+            [Commit(9, amend=False)],
+            Condition.IS,
+            label="inner",
+        )
+
+        Conflict(
+            BranchRef("counter"),
+            BranchRef("main"),
+            [inner, Commit(8, amend=False)],
+            [Commit(7, amend=False)],
+            Condition.GT,
+            label="outer",
+        ).run(repo)
+
+        self.assertEqual(repo.branches["counter"].value, 2)
+        self.assertEqual(repo.branches["main"].value, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
