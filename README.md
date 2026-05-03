@@ -183,6 +183,7 @@ git commit -m "
 * Reads a string from stdin
 * Stores it as a sequence of commits (one per character)
 * Characters are stored in **reverse order** (last character closest to HEAD)
+* `--amend` is not allowed for string commits
 
 ---
 
@@ -290,7 +291,6 @@ Prints characters from commits.
 
 * `<commit-ref>`: all commits reachable from that commit
 * `<commit-range>`: commits in the specified range
-* Commit values of `0` are skipped
 
 Traversal is:
 

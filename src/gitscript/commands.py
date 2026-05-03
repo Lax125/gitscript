@@ -17,10 +17,10 @@ def commit(repo: Repo, value: int, amend=False):
     # move branch
     repo.branches[repo.HEAD] = new
 
-def commit_string(repo: Repo, value: str, amend=False):
+def commit_string(repo: Repo, value: str):
     head = repo.branches[repo.HEAD]
 
-    parent = head.parent if amend else head
+    parent = head
     new = parent
 
     for char in value[::-1]:
