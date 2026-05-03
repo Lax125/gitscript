@@ -23,7 +23,7 @@ The initial state consists of a single commit with value `0` on the `main` branc
 
 ```
 git commit --amend -m "Hello, World!"
-git log
+git log HEAD~13..HEAD
 ```
 
 Outputs:
@@ -89,14 +89,17 @@ HEAD~(foo~1)
 ---
 
 ## ↔️ Commit Ranges
+
 ```
 <commit-range> = <commit-ref>..<commit-ref>
 ```
 
 ### Semantics
 
-`<commit-ref>..<commit-ref>` refers to all commits that are reachable from the RHS commit (including itself), but
-not reachable from the LHS commit. `A..A` refers to an empty range of commits.
+`A..B` refers to all commits reachable from `B` (including `B`) but not reachable from `A`.
+
+* If `A == B`, the range is empty
+* Order is always defined relative to traversal from `B` backwards
 
 ---
 
@@ -121,11 +124,8 @@ git commit -m "
 ```
 
 * Reads a string from stdin
-* Stores it as a **null-terminated sequence of commits**
-* Internally:
-
-  * first commit = `0`
-  * followed by characters in reverse order
+* Stores it as a sequence of commits (one per character)
+* Characters are stored in **reverse order** (last character closest to HEAD)
 
 ---
 
@@ -141,17 +141,20 @@ Same as above, but inline.
 git branch <name> [<commit-ref>]
 ```
 
-Creates a new branch. If a commit is specified, it is created there. Otherwise, it is created at the current commit.
+Creates a new branch.
+
+* If a commit is specified, the branch points there
+* Otherwise, it points to the current commit
 
 ---
 
 ### `git branch -d`
 
 ```
-git branch -d [<name>]...
+git branch -d [<branch-name>]...
 ```
 
-Removes existing branches with the specified names.
+Deletes the specified branches.
 
 ---
 
@@ -163,8 +166,7 @@ git checkout -b <branch-name> [<commit-ref>]
 ```
 
 * Switch active branch
-* `-b` creates the branch first, optionally at a specific commit. This is equivalent to
-  `git branch <branch-name> [<commit-ref>]` followed by `git checkout <branch-name>`.
+* `-b` creates the branch first
 
 ---
 
@@ -207,22 +209,28 @@ Combines values using a strategy.
 
 ### `git cherry-pick`
 
-TODO: adjust semantics
 ```
 git cherry-pick <commit-ref>
 git cherry-pick <commit-range>
 ```
 
-Creates a new commit with the same value as the referenced commit.
+* `<commit-ref>`: creates a new commit with the same value
+* `<commit-range>`: replays commits **from oldest to newest**, preserving order
 
 ---
+
 ### `git revert`
 
-TODO: semantics
 ```
 git revert <commit-ref>
 git revert <commit-range>
 ```
+
+* `<commit-ref>`: creates a commit with the **negated value**
+* `<commit-range>`:
+
+  * iterates commits from newest to oldest
+  * appends commits with **negated values**
 
 ---
 
@@ -252,10 +260,10 @@ Creates a named reference to the current commit.
 ### `git tag -d`
 
 ```
-git tag -d [<name>]...
+git tag -d [<tag-name>]...
 ```
 
-Removes existing tags with the specified names.
+Deletes the specified tags.
 
 ---
 
@@ -271,33 +279,36 @@ Prints the value of a commit (default: `HEAD`).
 
 ### `git log`
 
-TODO: Adjust semantics. If a single commit ref is given, the selected commits are all commits reachable from that
-commit.`git log` should have the same behaviour as `git log HEAD`.
 ```
-git log [-n <non-negative-int>] [--reverse] [<commit-ref>]
+git log [-n <non-negative-int>] [--reverse] <commit-ref>
 git log [-n <non-negative-int>] [--reverse] <commit-range>
 ```
 
-Prints a string by:
+Prints characters from commits.
 
-1. Starting at the given commit
-2. Traversing backwards
-3. Converting values to characters
-4. Stopping at:
+* `<commit-ref>`: all commits reachable from that commit
+* `<commit-range>`: commits in the specified range
 
-   * value `0` (null terminator), or
-   * root commit
+Traversal is:
+
+* default: newest → oldest
+* `--reverse`: oldest → newest
+
+Each commit value is interpreted as a character.
 
 ---
 
 ### `git rev-list`
 
-TODO: Semantics. This command should print out the integer value, line by line, of the commit(s) specified. If a single
-commit ref is given, the selected commits are all commits reachable from that commit.
 ```
 git rev-list [-n <non-negative-int>] [--reverse] <commit-ref>
 git rev-list [-n <non-negative-int>] [--reverse] <commit-range>
 ```
+
+Prints commit values (integers), one per line.
+
+* `<commit-ref>`: all reachable commits
+* `<commit-range>`: commits in the range
 
 ---
 
@@ -322,29 +333,6 @@ GitScript uses merge conflict syntax for control flow:
    * if `A < B`: run bottom block
    * if equal: exit
 3. Repeat (values are re-evaluated each time)
-
-### Equivalent Model
-
-```
-while value(A) != value(B):
-    if value(A) > value(B):
-        run A block
-    else:
-        run B block
-```
-
----
-
-## 🧵 Strings
-
-Strings are stored as linked commits:
-
-```
-0 → 'o' → 'l' → 'l' → 'e' → 'h'
-```
-
-* `0` = null terminator
-* traversal is backwards (HEAD → parent → ...)
 
 ---
 
