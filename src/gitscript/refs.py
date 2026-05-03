@@ -30,7 +30,7 @@ class AncestorRef(Ref):
         c = base_commit
         for _ in range(offset):
             if c.parent is None:
-                return c  # stop at root
+                raise RuntimeError("Ancestor does not exist")
             c = c.parent
         return c
 
@@ -71,7 +71,7 @@ def resolve(ref: Ref, repo: Repo) -> Commit:
         c = base_commit
         for _ in range(offset):
             if c.parent is None:
-                return c  # stop at root
+                raise RuntimeError("Ancestor does not exist")
             c = c.parent
         return c
 

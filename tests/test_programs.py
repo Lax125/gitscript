@@ -44,6 +44,17 @@ class StatementExecutionTests(unittest.TestCase):
         self.assertEqual(output, "Hello\n")
         self.assertEqual(repo.branches["main"].value, ord("H"))
 
+    def test_hello_world_readme_example(self):
+        repo, output = run_program(
+            """
+            git commit --amend -m "Hello, World!"
+            git log
+            """
+        )
+
+        self.assertEqual(output, "Hello, World!\n")
+        self.assertEqual(repo.branches["main"].value, ord("H"))
+
     def test_conflict_loop_runs_until_refs_are_equal(self):
         repo, output = run_program(
             """

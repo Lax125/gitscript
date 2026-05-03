@@ -21,9 +21,6 @@ def commit_string(repo: Repo, value: str, amend=False):
     head = repo.branches[repo.HEAD]
 
     parent = head.parent if amend else head
-    new = Commit(0, parent)
-
-    parent = new
 
     for char in value[::-1]:
         new = Commit(ord(char), parent)
@@ -81,9 +78,9 @@ def branch(repo: Repo, name: str, ref: Ref = HeadRef()):
 def delete_branch(repo: Repo, name: str):
     if repo.HEAD == name:
         raise RuntimeError(f"Cannot delete current branch {name}")
-    elif not repo.has(name):
+    elif name not in repo.branches:
         raise RuntimeError(f"Branch {name} does not exist")
-    del repo.branches[repo.HEAD]
+    del repo.branches[name]
 
 def checkout(repo: Repo, name: str):
     if name not in repo.branches:
@@ -97,9 +94,9 @@ def tag(repo: Repo, name: str):
     repo.tags[name] = c
 
 def delete_tag(repo: Repo, name: str):
-    if tag not in repo.tags:
+    if name not in repo.tags:
         raise RuntimeError(f"tag {name} does not exist")
-    del repo.tags[tag]
+    del repo.tags[name]
 
 def rebase(repo, ref):
     head = repo.branches[repo.HEAD]
@@ -133,23 +130,38 @@ def show(repo: Repo, ref: Ref):
     print(c.value)
 
 def log(repo: Repo, ref: Ref, limit: Optional[int] = None, reverse: bool = False):
-    # TODO adjust behavior to match spec
-    c = resolve(ref, repo)
-    string = ""
-
-    while c.value:
-        string += chr(c.value)
-        if not c.parent:
-            break
-        c = c.parent
-
-    print(string)
+    print(_commits_to_string(_select_commits(_reachable_commits(resolve(ref, repo)), limit, reverse)))
 
 def log_range(repo: Repo, commit_range: CommitRange, limit: Optional[int] = None, reverse: bool = False):
-    pass # TODO implement
+    print(_commits_to_string(_select_commits(commit_range.resolve(repo), limit, reverse)))
 
 def rev_list(repo: Repo, ref: Ref, limit: Optional[int] = None, reverse: bool = False):
-    pass # TODO implement
+    _print_values(_select_commits(_reachable_commits(resolve(ref, repo)), limit, reverse))
 
 def rev_list_range(repo: Repo, commit_range: CommitRange, limit: Optional[int] = None, reverse: bool = False):
-    pass # TODO implement
+    _print_values(_select_commits(commit_range.resolve(repo), limit, reverse))
+
+
+def _reachable_commits(commit: Commit) -> list[Commit]:
+    commits = []
+    while commit is not None:
+        commits.append(commit)
+        commit = commit.parent
+    return commits
+
+
+def _select_commits(commits: list[Commit], limit: Optional[int], reverse: bool) -> list[Commit]:
+    if reverse:
+        commits = commits[::-1]
+    if limit is not None:
+        commits = commits[:limit]
+    return commits
+
+
+def _commits_to_string(commits: list[Commit]) -> str:
+    return "".join(chr(commit.value) for commit in commits if commit.value != 0)
+
+
+def _print_values(commits: list[Commit]) -> None:
+    for commit in commits:
+        print(commit.value)

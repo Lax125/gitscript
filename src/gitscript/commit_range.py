@@ -9,4 +9,16 @@ class CommitRange:
         self.include = include
 
     def resolve(self, repo: Repo) -> list[Commit]:
-        pass # TODO implement. this should return all commits reachable from include but not from exclude, in reverse chronological order
+        excluded = set()
+        commit = self.exclude.resolve(repo)
+        while commit is not None:
+            excluded.add(commit)
+            commit = commit.parent
+
+        commits = []
+        commit = self.include.resolve(repo)
+        while commit is not None and commit not in excluded:
+            commits.append(commit)
+            commit = commit.parent
+
+        return commits

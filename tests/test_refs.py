@@ -55,14 +55,19 @@ class RefTests(unittest.TestCase):
         self.assertEqual(ref.offset(repo), 2)
         self.assertEqual(resolved.value, 10)
 
-    def test_constant_offset_ref_clamps_at_root_commit(self):
+    def test_constant_offset_ref_rejects_missing_ancestor(self):
         repo = Repo()
         commit(repo, 4)
 
-        resolved = ConstantOffsetRef(HeadRef(), 99).resolve(repo)
+        with self.assertRaisesRegex(RuntimeError, "Ancestor does not exist"):
+            ConstantOffsetRef(HeadRef(), 99).resolve(repo)
 
-        self.assertEqual(resolved.value, 0)
-        self.assertIsNone(resolved.parent)
+    def test_constant_offset_ref_rejects_one_past_root(self):
+        repo = Repo()
+        commit(repo, 4)
+
+        with self.assertRaisesRegex(RuntimeError, "Ancestor does not exist"):
+            ConstantOffsetRef(HeadRef(), 2).resolve(repo)
 
     def test_dynamic_offset_ref_uses_value_from_offset_expression(self):
         repo = Repo()

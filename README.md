@@ -23,7 +23,7 @@ The initial state consists of a single commit with value `0` on the `main` branc
 
 ```
 git commit --amend -m "Hello, World!"
-git log HEAD~13..HEAD
+git log
 ```
 
 Outputs:
@@ -74,6 +74,7 @@ git show
 * `<branch-name>` refers to that branch’s tip
 * `<tag-name>` refers to the commit at the specified tag
 * `~n` moves `n` commits backwards
+* `<ref>~n` is a runtime error if `<ref>` has fewer than `n` ancestors
 * `<ref>~<ref>`:
 
   * evaluate RHS → get its value `n`
@@ -288,6 +289,7 @@ Prints characters from commits.
 
 * `<commit-ref>`: all commits reachable from that commit
 * `<commit-range>`: commits in the specified range
+* Commit values of `0` are skipped
 
 Traversal is:
 

@@ -2,19 +2,28 @@ import shlex
 from dataclasses import dataclass
 from typing import Iterable
 
+from gitscript.commit_range import CommitRange
 from gitscript.refs import BranchRef, ConstantOffsetRef, DynamicOffsetRef, HeadRef, Ref
 from gitscript.operators import Operator
 from gitscript.statements import (
     Branch,
     Checkout,
     CherryPick,
+    CherryPickRange,
     Commit,
     CommitString,
     Conflict,
+    DeleteBranches,
+    DeleteTags,
     Log,
+    LogRange,
     Merge,
     Rebase,
+    Revert,
+    RevertRange,
     Reset,
+    RevList,
+    RevListRange,
     Show,
     Statement,
     Tag,
@@ -152,16 +161,13 @@ def _parse_statement(line: _Line) -> Statement:
     command = parts[1]
     args = parts[2:]
 
-    # TODO support revert and rev-list
     if command == "commit":
         return _parse_commit(args, line.number, _commit_message_is_quoted(raw))
     if command == "branch":
-        _expect_count(args, 1, line.number, "git branch")
-        return Branch(args[0])
+        return _parse_branch(args, line.number)
     if command == "checkout":
-        # TODO: handle optional commitref to create branch at
-        if len(args) == 2 and args[0] == "-b":
-            return Checkout(args[1], HeadRef())
+        if len(args) in {2, 3} and args[0] == "-b":
+            return Checkout(args[1], _parse_ref(args[2], line.number) if len(args) == 3 else HeadRef())
         _expect_count(args, 1, line.number, "git checkout")
         return Checkout(args[0])
     if command == "reset":
@@ -171,21 +177,56 @@ def _parse_statement(line: _Line) -> Statement:
         return _parse_merge(args, line.number)
     if command == "cherry-pick":
         _expect_count(args, 1, line.number, "git cherry-pick")
-        return CherryPick(_parse_ref(args[0], line.number))
+        target = _parse_range_or_ref(args[0], line.number)
+        if isinstance(target, CommitRange):
+            return CherryPickRange(target)
+        return CherryPick(target)
+    if command == "revert":
+        _expect_count(args, 1, line.number, "git revert")
+        target = _parse_range_or_ref(args[0], line.number)
+        if isinstance(target, CommitRange):
+            return RevertRange(target)
+        return Revert(target)
     if command == "rebase":
         _expect_count(args, 1, line.number, "git rebase")
         return Rebase(_parse_ref(args[0], line.number))
     if command == "tag":
-        _expect_count(args, 1, line.number, "git tag")
-        return Tag(args[0])
+        return _parse_tag(args, line.number)
     if command == "show":
         _expect_count(args, (0, 1), line.number, "git show")
         return Show(_parse_ref(args[0], line.number) if args else HeadRef())
     if command == "log":
-        _expect_count(args, (0, 1), line.number, "git log")
-        return Log(_parse_ref(args[0], line.number) if args else HeadRef())
+        target, limit, reverse = _parse_list_args(args, line.number, "git log")
+        if isinstance(target, CommitRange):
+            return LogRange(target, limit, reverse)
+        return Log(target, limit, reverse)
+    if command == "rev-list":
+        target, limit, reverse = _parse_list_args(args, line.number, "git rev-list")
+        if isinstance(target, CommitRange):
+            return RevListRange(target, limit, reverse)
+        return RevList(target, limit, reverse)
 
     raise ParseError(f"Line {line.number}: Unknown git command: {command}")
+
+
+def _parse_branch(args: list[str], line_number: int) -> Statement:
+    if args and args[0] == "-d":
+        if len(args) < 2:
+            raise ParseError(f"Line {line_number}: git branch -d needs at least one branch name")
+        return DeleteBranches(args[1:])
+
+    _expect_count(args, (1, 2), line_number, "git branch")
+    return Branch(args[0], _parse_ref(args[1], line_number) if len(args) == 2 else HeadRef())
+
+
+def _parse_tag(args: list[str], line_number: int) -> Statement:
+    if args and args[0] == "-d":
+        if len(args) < 2:
+            raise ParseError(f"Line {line_number}: git tag -d needs at least one tag name")
+        return DeleteTags(args[1:])
+
+    _expect_count(args, 1, line_number, "git tag")
+    return Tag(args[0])
 
 
 def _parse_commit(args: list[str], line_number: int, message_is_quoted: bool) -> Statement:
@@ -256,6 +297,56 @@ def _parse_operator(text: str, line_number: int) -> Operator:
         if op.value == text:
             return op
     raise ParseError(f"Line {line_number}: Unknown merge strategy: {text}")
+
+
+def _parse_range_or_ref(text: str, line_number: int) -> Ref | CommitRange:
+    if ".." in text:
+        parts = text.split("..")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise ParseError(f"Line {line_number}: Invalid commit range: {text}")
+        return CommitRange(_parse_ref(parts[0], line_number), _parse_ref(parts[1], line_number))
+    return _parse_ref(text, line_number)
+
+
+def _parse_list_args(args: list[str], line_number: int, command: str) -> tuple[Ref | CommitRange, int | None, bool]:
+    limit = None
+    reverse = False
+    target: Ref | CommitRange | None = None
+
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--reverse":
+            reverse = True
+            i += 1
+        elif arg == "-n":
+            if i + 1 >= len(args):
+                raise ParseError(f"Line {line_number}: {command} -n needs a limit")
+            limit = _parse_limit(args[i + 1], line_number, command)
+            i += 2
+        elif arg.startswith("-n="):
+            limit = _parse_limit(arg[3:], line_number, command)
+            i += 1
+        elif arg.startswith("-"):
+            raise ParseError(f"Line {line_number}: Unexpected {command} argument: {arg}")
+        else:
+            if target is not None:
+                raise ParseError(f"Line {line_number}: {command} accepts only one ref or range")
+            target = _parse_range_or_ref(arg, line_number)
+            i += 1
+
+    return target if target is not None else HeadRef(), limit, reverse
+
+
+def _parse_limit(text: str, line_number: int, command: str) -> int:
+    try:
+        limit = int(text)
+    except ValueError as exc:
+        raise ParseError(f"Line {line_number}: {command} -n needs a non-negative integer") from exc
+
+    if limit < 0:
+        raise ParseError(f"Line {line_number}: {command} -n needs a non-negative integer")
+    return limit
 
 
 def _parse_ref(text: str, line_number: int) -> Ref:

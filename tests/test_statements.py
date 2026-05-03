@@ -3,6 +3,7 @@ import io
 import unittest
 from unittest.mock import patch
 
+from gitscript.commit_range import CommitRange
 from gitscript.refs import BranchRef, ConstantOffsetRef, HeadRef
 from gitscript.operators import Operator
 from gitscript.repo import Repo
@@ -10,13 +11,21 @@ from gitscript.statements import (
     Branch,
     Checkout,
     CherryPick,
+    CherryPickRange,
     Commit,
     CommitString,
     Conflict,
+    DeleteBranches,
+    DeleteTags,
     Log,
+    LogRange,
     Merge,
     Rebase,
+    Revert,
+    RevertRange,
     Reset,
+    RevList,
+    RevListRange,
     Show,
     Tag,
 )
@@ -72,15 +81,15 @@ class StatementTests(unittest.TestCase):
         self.assertIs(head.parent, original.parent)
         self.assertEqual(values_from_head(repo), [2, 0])
 
-    def test_commit_string_stores_null_terminated_reversed_chain(self):
+    def test_commit_string_stores_one_commit_per_character(self):
         repo = Repo()
         root = repo.branches["main"]
 
         CommitString("Hi", amend=False).run(repo)
 
         head = repo.branches["main"]
-        self.assertEqual(values_from_head(repo), [ord("H"), ord("i"), 0, 0])
-        self.assertIs(head.parent.parent.parent, root)
+        self.assertEqual(values_from_head(repo), [ord("H"), ord("i"), 0])
+        self.assertIs(head.parent.parent, root)
 
     def test_commit_string_can_read_value_from_input(self):
         repo = Repo()
@@ -88,7 +97,7 @@ class StatementTests(unittest.TestCase):
         with patch("builtins.input", return_value="Yo"):
             CommitString(None, amend=False).run(repo)
 
-        self.assertEqual(values_from_head(repo)[:3], [ord("Y"), ord("o"), 0])
+        self.assertEqual(values_from_head(repo)[:2], [ord("Y"), ord("o")])
 
     def test_branch_creates_new_pointer_at_current_commit(self):
         repo = Repo()
@@ -183,9 +192,84 @@ class StatementTests(unittest.TestCase):
         repo = Repo()
         CommitString("Ok", amend=False).run(repo)
 
-        output = capture_output(Log(HeadRef()), repo)
+        output = capture_output(LogRange(CommitRange(ConstantOffsetRef(HeadRef(), 2), HeadRef())), repo)
 
         self.assertEqual(output, "Ok\n")
+
+    def test_log_supports_limit_and_reverse(self):
+        repo = Repo()
+        Commit(65, amend=False).run(repo)
+        Commit(66, amend=False).run(repo)
+        Commit(67, amend=False).run(repo)
+
+        output = capture_output(Log(HeadRef(), limit=2, reverse=True), repo)
+
+        self.assertEqual(output, "A\n")
+
+    def test_rev_list_prints_values(self):
+        repo = Repo()
+        Commit(1, amend=False).run(repo)
+        Commit(2, amend=False).run(repo)
+
+        output = capture_output(RevList(HeadRef(), limit=2), repo)
+
+        self.assertEqual(output, "2\n1\n")
+
+    def test_rev_list_range_prints_range_values(self):
+        repo = Repo()
+        Commit(1, amend=False).run(repo)
+        Commit(2, amend=False).run(repo)
+        Commit(3, amend=False).run(repo)
+
+        output = capture_output(RevListRange(CommitRange(ConstantOffsetRef(HeadRef(), 2), HeadRef())), repo)
+
+        self.assertEqual(output, "3\n2\n")
+
+    def test_cherry_pick_range_replays_oldest_to_newest(self):
+        repo = Repo()
+        Commit(1, amend=False).run(repo)
+        Commit(2, amend=False).run(repo)
+        Commit(3, amend=False).run(repo)
+
+        CherryPickRange(CommitRange(ConstantOffsetRef(HeadRef(), 3), HeadRef())).run(repo)
+
+        self.assertEqual(values_from_head(repo)[:3], [3, 2, 1])
+
+    def test_revert_creates_negated_value(self):
+        repo = Repo()
+        Commit(5, amend=False).run(repo)
+
+        Revert(HeadRef()).run(repo)
+
+        self.assertEqual(values_from_head(repo)[:2], [-5, 5])
+
+    def test_revert_range_replays_newest_to_oldest_as_negated_values(self):
+        repo = Repo()
+        Commit(1, amend=False).run(repo)
+        Commit(2, amend=False).run(repo)
+        Commit(3, amend=False).run(repo)
+
+        RevertRange(CommitRange(ConstantOffsetRef(HeadRef(), 3), HeadRef())).run(repo)
+
+        self.assertEqual(values_from_head(repo)[:3], [-1, -2, -3])
+
+    def test_delete_branches_removes_named_branches(self):
+        repo = Repo()
+        Branch("left").run(repo)
+        Branch("right").run(repo)
+
+        DeleteBranches(["left", "right"]).run(repo)
+
+        self.assertNotIn("left", repo.branches)
+        self.assertNotIn("right", repo.branches)
+
+    def test_delete_tags_removes_named_tags(self):
+        repo = Repo()
+        Tag("old").run(repo)
+
+        DeleteTags(["old"]).run(repo)
+
+        self.assertNotIn("old", repo.tags)
 
     def test_conflict_runs_blocks_until_ref_values_match(self):
         repo = Repo()

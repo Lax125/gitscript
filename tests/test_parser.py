@@ -1,9 +1,27 @@
 import unittest
 
+from gitscript.commit_range import CommitRange
 from gitscript.refs import BranchRef, ConstantOffsetRef, DynamicOffsetRef, HeadRef
 from gitscript.operators import Operator
 from gitscript.parser import IncompleteInput, ParseError, parse, parse_repl
-from gitscript.statements import Checkout, Commit, CommitString, Conflict, Log, Merge, Show
+from gitscript.statements import (
+    Branch,
+    Checkout,
+    CherryPickRange,
+    Commit,
+    CommitString,
+    Conflict,
+    DeleteBranches,
+    DeleteTags,
+    Log,
+    LogRange,
+    Merge,
+    Revert,
+    RevertRange,
+    RevList,
+    RevListRange,
+    Show,
+)
 
 
 class ParserTests(unittest.TestCase):
@@ -112,6 +130,62 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(len(conflict.block_b), 2)
         self.assertIsInstance(conflict.ref_b, BranchRef)
         self.assertEqual(conflict.ref_b.name, "b")
+
+    def test_parse_branch_delete_and_create_at_ref(self):
+        statements = parse(
+            """
+            git branch saved HEAD~1
+            git branch -d stale old
+            git checkout -b feature HEAD~2
+            """
+        )
+
+        self.assertIsInstance(statements[0], Branch)
+        self.assertEqual(statements[0].branch_name, "saved")
+        self.assertIsInstance(statements[0].ref, ConstantOffsetRef)
+        self.assertIsInstance(statements[1], DeleteBranches)
+        self.assertEqual(statements[1].branch_names, ["stale", "old"])
+        self.assertIsInstance(statements[2], Checkout)
+        self.assertEqual(statements[2].branch_name, "feature")
+        self.assertIsInstance(statements[2].create_at, ConstantOffsetRef)
+
+    def test_parse_tag_delete(self):
+        statements = parse("git tag -d v1 v2")
+
+        self.assertIsInstance(statements[0], DeleteTags)
+        self.assertEqual(statements[0].tag_names, ["v1", "v2"])
+
+    def test_parse_range_commands(self):
+        statements = parse(
+            """
+            git cherry-pick HEAD~2..HEAD
+            git revert HEAD
+            git revert HEAD~2..HEAD
+            git log -n 2 --reverse HEAD~2..HEAD
+            git rev-list -n=3 HEAD
+            git rev-list --reverse HEAD~2..HEAD
+            """
+        )
+
+        self.assertIsInstance(statements[0], CherryPickRange)
+        self.assertIsInstance(statements[0].range, CommitRange)
+        self.assertIsInstance(statements[1], Revert)
+        self.assertIsInstance(statements[2], RevertRange)
+        self.assertIsInstance(statements[2].range, CommitRange)
+        self.assertIsInstance(statements[3], LogRange)
+        self.assertEqual(statements[3].limit, 2)
+        self.assertTrue(statements[3].reverse)
+        self.assertIsInstance(statements[4], RevList)
+        self.assertEqual(statements[4].limit, 3)
+        self.assertIsInstance(statements[5], RevListRange)
+        self.assertTrue(statements[5].reverse)
+
+    def test_parse_log_ref_options(self):
+        statements = parse("git log --reverse -n 1 HEAD")
+
+        self.assertIsInstance(statements[0], Log)
+        self.assertEqual(statements[0].limit, 1)
+        self.assertTrue(statements[0].reverse)
 
     def test_refs_associate_right_to_left(self):
         statements = parse("git show HEAD~foo~1")
