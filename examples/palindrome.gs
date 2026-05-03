@@ -40,14 +40,13 @@ git merge root -s ==
 git checkout -b message root
 <<<<<<< check
     git commit -m " is a palindrome."
-    git cherry-pick root..original_input
-    git log root..message
     git checkout check
     git reset root
 =======
     git commit -m " is not a palindrome."
-    git cherry-pick root..original_input
-    git log root..message
     git checkout check
     git reset root
 >>>>>>> root
+
+git cherry-pick root..original_input
+git log root..message
