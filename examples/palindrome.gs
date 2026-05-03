@@ -48,5 +48,6 @@ git checkout -b message root
     git reset root
 >>>>>>> root
 
+git checkout message
 git cherry-pick root..original_input
 git log root..message

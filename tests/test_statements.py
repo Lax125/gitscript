@@ -290,9 +290,9 @@ class StatementTests(unittest.TestCase):
 
         Conflict(
             BranchRef("a"),
-            [Checkout("a"), Merge(BranchRef("b"), Operator.SUBTRACT)],
             BranchRef("b"),
-            [Checkout("b"), Merge(BranchRef("a"), Operator.SUBTRACT)],
+            [Checkout("a"), Merge(BranchRef("b"), Operator.SUBTRACT)],
+            [Checkout("b"), Merge(BranchRef("a"), Operator.SUBTRACT)]
         ).run(repo)
 
         self.assertEqual(repo.branches["a"].value, 6)

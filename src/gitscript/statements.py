@@ -170,10 +170,10 @@ class RevListRange(Statement):
         rev_list_range(repo, self.commit_range, self.limit, self.reverse)
 
 class Conflict(Statement):
-    def __init__(self, ref_a: Ref, block_a: list[Statement], ref_b: Ref, block_b: list[Statement]):
+    def __init__(self, ref_a: Ref, ref_b: Ref, block_a: list[Statement], block_b: list[Statement]):
         self.ref_a = ref_a
-        self.block_a = block_a
         self.ref_b = ref_b
+        self.block_a = block_a
         self.block_b = block_b
 
     def run(self, repo: Repo):

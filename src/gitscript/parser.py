@@ -130,7 +130,7 @@ class _Parser:
             raise self._error(end, "Conflict end marker needs a commit reference")
 
         self.index += 1
-        return Conflict(_parse_ref(ref_a_text, start.number), block_a, _parse_ref(ref_b_text, end.number), block_b)
+        return Conflict(_parse_ref(ref_a_text, start.number), _parse_ref(ref_b_text, end.number), block_a, block_b)
 
     def _current(self) -> _Line | None:
         if self.index >= len(self.lines):
