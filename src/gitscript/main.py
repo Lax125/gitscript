@@ -8,7 +8,7 @@ from gitscript.repo import Repo
 
 def run_statements(source: str, repo: Repo | None = None) -> Repo:
     if repo is None:
-        repo = Repo()
+        repo: Repo = Repo()
 
     for statement in parse(source):
         statement.run(repo)

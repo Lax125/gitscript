@@ -6,8 +6,6 @@ from gitscript.refs import (
     ConstantOffsetRef,
     DynamicOffsetRef,
     HeadRef,
-    Ref,
-    resolve,
 )
 from gitscript.commands import branch, checkout, commit, tag
 from gitscript.repo import Repo

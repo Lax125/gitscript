@@ -74,8 +74,7 @@ class _Parser:
 
     def parse_program(self) -> list[Statement]:
         statements = self._parse_block()
-        if self._current() is not None:
-            line = self._current()
+        if (line := self._current()) is not None:
             raise self._error(line, f"Unexpected control-flow marker: {line.text.strip()}")
         return statements
 
@@ -92,7 +91,7 @@ class _Parser:
                 break
 
             if stripped.startswith("<<<<<<<"):
-                statements.append(self._parse_conflict())
+                statements.append(self._parse_conflict(line))
                 continue
 
             if stripped.startswith(("=======", ">>>>>>>")):
@@ -103,8 +102,7 @@ class _Parser:
 
         return statements
 
-    def _parse_conflict(self) -> Conflict:
-        start = self._current()
+    def _parse_conflict(self, start: _Line) -> Conflict:
         ref_a_text = start.text.strip()[7:].strip()
         if not ref_a_text:
             raise self._error(start, "Conflict start marker needs a commit reference")

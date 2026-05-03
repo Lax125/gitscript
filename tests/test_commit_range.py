@@ -15,7 +15,7 @@ class CommitRangeTests(unittest.TestCase):
 
         commits = CommitRange(ConstantOffsetRef(HeadRef(), 2), HeadRef()).resolve(repo)
 
-        self.assertEqual([commit.value for commit in commits], [3, 2])
+        self.assertEqual([c.value for c in commits], [3, 2])
 
     def test_resolve_returns_empty_range_when_refs_are_equal(self):
         repo = Repo()
@@ -37,7 +37,7 @@ class CommitRangeTests(unittest.TestCase):
 
         commits = CommitRange(BranchRef("main-tip"), BranchRef("feature")).resolve(repo)
 
-        self.assertEqual([commit.value for commit in commits], [2])
+        self.assertEqual([c.value for c in commits], [2])
 
 
 if __name__ == "__main__":
