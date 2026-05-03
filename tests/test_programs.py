@@ -148,7 +148,7 @@ class ProgramTests(unittest.TestCase):
             """
         )
 
-        self.assertEqual(output, "13\n-7\n30\n0\n3\n0\n1\n0\n1\n0\n1\n")
+        self.assertEqual(output, "13\n-7\n30\n0\n3\n-1\n1\n-1\n1\n-1\n1\n")
         self.assertEqual(repo.branches["main"].value, 1)
 
     def test_commit_refs_static_dynamic_parenthesized_and_missing_ancestor(self):

@@ -219,7 +219,7 @@ Combines values using a strategy.
 * `/` (integer division)
 * `%`
 
-#### Comparison (returns `0` or `1`)
+#### Comparison (returns `-1` or `1`)
 
 * `>`
 * `<`

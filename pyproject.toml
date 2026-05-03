@@ -1,0 +1,6 @@
+[project]
+name = "gitscript"
+version = "0.1.0"
+
+[project.scripts]
+gitscript = "gitscript.main:main"

@@ -56,12 +56,12 @@ def merge(repo, ref, op: Operator):
     elif op == Operator.MULTIPLY: v = a * b
     elif op == Operator.DIVIDE: v = a // b
     elif op == Operator.MODULO: v = a % b
-    elif op == Operator.GT: v = int(a > b)
-    elif op == Operator.LT: v = int(a < b)
-    elif op == Operator.EQ: v = int(a == b)
-    elif op == Operator.NEQ: v = int(a != b)
-    elif op == Operator.GTE: v = int(a >= b)
-    elif op == Operator.LTE: v = int(a <= b)
+    elif op == Operator.GT: v = int(a > b) * 2 - 1
+    elif op == Operator.LT: v = int(a < b) * 2 - 1
+    elif op == Operator.EQ: v = int(a == b) * 2 - 1
+    elif op == Operator.NEQ: v = int(a != b) * 2 - 1
+    elif op == Operator.GTE: v = int(a >= b) * 2 - 1
+    elif op == Operator.LTE: v = int(a <= b) * 2 - 1
     else:
         raise RuntimeError(f"Unknown strategy: {op}")
 
