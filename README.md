@@ -35,24 +35,33 @@ Hello, World!
 
 ---
 
-### GCD (Euclidean Algorithm)
+### Countdown Loop
 
 ```
-git checkout -b a
-git commit   # input integer
+git checkout -b counter
+git commit -m 3
 
-git checkout -b b
-git commit   # input integer
+git checkout -b one
+git commit -m 1
 
-<<<<<<< a
-    git checkout a
-    git merge b -s=-
+git checkout main
+
+git merge -s >
+<<<<<<< counter
+    git checkout counter
+    git cherry-pick one -s=-
+    git merge --continue
 =======
-    git checkout b
-    git merge a -s=-
->>>>>>> b
+    git merge --abort
+>>>>>>> main
 
-git show
+git show counter
+```
+
+Outputs:
+
+```
+0
 ```
 
 ---
@@ -203,23 +212,41 @@ Moves the current branch to the specified commit.
 
 ---
 
-### `git merge`
+### `git cherry-pick`
 
 ```
-git merge <commit-ref> [-s <strategy>]
+git cherry-pick <commit-ref> [-s <strategy>]
+git cherry-pick <commit-range> [-s <strategy>]
 ```
 
-Combines values using a strategy.
+Creates new commits from existing commits.
+
+* `<commit-ref>`: creates a new commit using the referenced commit and the selected strategy
+* `<commit-range>`: replays commits **from oldest to newest**, preserving order
+
+Strategies combine:
+
+* **ours** = current `HEAD` value
+* **theirs** = the next referenced commit value
+
+For a range with a strategy, the strategy is applied as a reduction. Each new commit becomes the next `ours` value.
+
+Example: cherry-picking values `[1, 2, 3]` onto a current value of `5` with `-s=+` creates commits `[6, 8, 11]`.
+
+#### Value Selection
+
+* `theirs` (default): commit `theirs`
+* `ours`: commit `ours`
 
 #### Arithmetic
 
-* `+` (default)
+* `+`
 * `-`
 * `*`
 * `/` (integer division)
 * `%`
 
-#### Comparison (returns `-1` or `1`)
+#### Comparison (returns `0` or `1`)
 
 * `>`
 * `<`
@@ -230,15 +257,51 @@ Combines values using a strategy.
 
 ---
 
-### `git cherry-pick`
+### `git merge`
 
 ```
-git cherry-pick <commit-ref>
-git cherry-pick <commit-range>
+git merge [-s <condition>]
+git merge --continue
+git merge --abort
 ```
 
-* `<commit-ref>`: creates a new commit with the same value
-* `<commit-range>`: replays commits **from oldest to newest**, preserving order
+Controls merge-conflict blocks.
+
+`git merge` starts the following merge-conflict block. `-s` selects the condition used to choose between the two sides.
+
+If no condition is specified, the condition is `==`.
+
+#### Conditions
+
+Conditions are separate from value-combining cherry-pick strategies:
+
+* `>`: first commit value is greater than second commit value
+* `<`: first commit value is less than second commit value
+* `>=`: first commit value is greater than or equal to second commit value
+* `<=`: first commit value is less than or equal to second commit value
+* `==`: first commit value equals second commit value
+* `!=`: first commit value does not equal second commit value
+* `is`: both commit references resolve to the exact same commit object
+
+#### Execution
+
+```
+git merge [-s <condition>]
+<<<<<<< A
+    ...
+=======
+    ...
+>>>>>>> B
+```
+
+1. Evaluate `A` and `B` to commits.
+2. If `A <condition> B` is true, run the top block.
+3. Otherwise, run the bottom block.
+4. Reaching the end of the selected block exits the control structure.
+5. `git merge --continue` jumps back to step 1.
+6. `git merge --abort` skips to the end of the current control structure immediately.
+
+This makes loops explicit: use `git merge --continue` when a selected side should repeat. One-shot conditional behavior is the default because falling out of a side exits.
 
 ---
 
@@ -320,6 +383,7 @@ Prints commit values (integers), one per line.
 GitScript uses merge conflict syntax for control flow:
 
 ```
+git merge [-s <condition>]
 <<<<<<< A
     ...
 =======
@@ -329,13 +393,12 @@ GitScript uses merge conflict syntax for control flow:
 
 ### Execution Rules
 
-1. Evaluate `A` and `B` to commits
-2. Compare their values:
+Merge-conflict blocks are controlled by `git merge`.
 
-   * if `A > B`: run top block
-   * if `A < B`: run bottom block
-   * if equal: exit
-3. Repeat (values are re-evaluated each time)
+* `git merge` starts the block and chooses the condition
+* `git merge --continue` repeats the block
+* `git merge --abort` exits the block
+* The conflict markers provide the two commit references compared by the condition
 
 ---
 

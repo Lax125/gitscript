@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from gitscript.commit_range import CommitRange
 from gitscript.refs import BranchRef, ConstantOffsetRef, HeadRef
-from gitscript.operators import Operator
+from gitscript.operators import Condition, Operator
 from gitscript.repo import Repo
 from gitscript.statements import (
     Branch,
@@ -19,7 +19,8 @@ from gitscript.statements import (
     DeleteTags,
     Log,
     LogRange,
-    Merge,
+    MergeAbort,
+    MergeContinue,
     Rebase,
     Revert,
     RevertRange,
@@ -151,13 +152,13 @@ class StatementTests(unittest.TestCase):
         self.assertEqual(repo.branches["main"].value, 1)
         self.assertEqual(values_from_head(repo), [1, 0])
 
-    def test_merge_creates_commit_from_head_and_ref_values(self):
+    def test_cherry_pick_strategy_creates_commit_from_head_and_ref_values(self):
         repo = Repo()
         Commit(10, amend=False).run(repo)
         Branch("ten").run(repo)
         Commit(3, amend=False).run(repo)
 
-        Merge(BranchRef("ten"), Operator.SUBTRACT).run(repo)
+        CherryPick(BranchRef("ten"), Operator.SUBTRACT).run(repo)
 
         self.assertEqual(repo.branches["main"].value, -7)
         self.assertEqual(repo.branches["main"].parent.value, 3)
@@ -245,6 +246,17 @@ class StatementTests(unittest.TestCase):
 
         self.assertEqual(values_from_head(repo)[:3], [3, 2, 1])
 
+    def test_cherry_pick_range_can_reduce_with_strategy(self):
+        repo = Repo()
+        Commit(1, amend=False).run(repo)
+        Commit(2, amend=False).run(repo)
+        Commit(3, amend=False).run(repo)
+        Commit(5, amend=False).run(repo)
+
+        CherryPickRange(CommitRange(ConstantOffsetRef(HeadRef(), 4), ConstantOffsetRef(HeadRef(), 1)), Operator.ADD).run(repo)
+
+        self.assertEqual(values_from_head(repo)[:3], [11, 8, 6])
+
     def test_revert_creates_negated_value(self):
         repo = Repo()
         Commit(5, amend=False).run(repo)
@@ -281,23 +293,46 @@ class StatementTests(unittest.TestCase):
 
         self.assertNotIn("old", repo.tags)
 
-    def test_conflict_runs_blocks_until_ref_values_match(self):
+    def test_conflict_runs_first_block_when_condition_matches(self):
         repo = Repo()
         Checkout("a", create_at=HeadRef()).run(repo)
-        Commit(48, amend=False).run(repo)
+        Commit(4, amend=False).run(repo)
         Checkout("b", create_at=HeadRef()).run(repo)
-        Commit(18, amend=False).run(repo)
+        Commit(2, amend=False).run(repo)
 
         Conflict(
             BranchRef("a"),
             BranchRef("b"),
-            [Checkout("a"), Merge(BranchRef("b"), Operator.SUBTRACT)],
-            [Checkout("b"), Merge(BranchRef("a"), Operator.SUBTRACT)]
+            [Checkout("a"), Commit(1, amend=False)],
+            [Checkout("b"), Commit(2, amend=False)],
+            Condition.GT,
         ).run(repo)
 
-        self.assertEqual(repo.branches["a"].value, 6)
-        self.assertEqual(repo.branches["b"].value, 6)
+        self.assertEqual(repo.branches["a"].value, 1)
+        self.assertEqual(repo.branches["b"].value, 2)
         self.assertEqual(repo.HEAD, "a")
+
+    def test_conflict_continue_repeats_and_abort_exits(self):
+        repo = Repo()
+        Checkout("counter", create_at=HeadRef()).run(repo)
+        Commit(2, amend=False).run(repo)
+        Checkout("one", create_at=HeadRef()).run(repo)
+        Commit(1, amend=False).run(repo)
+        Checkout("main").run(repo)
+
+        Conflict(
+            BranchRef("counter"),
+            BranchRef("main"),
+            [
+                Checkout("counter"),
+                CherryPick(BranchRef("one"), Operator.SUBTRACT),
+                MergeContinue(),
+            ],
+            [MergeAbort()],
+            Condition.GT,
+        ).run(repo)
+
+        self.assertEqual(repo.branches["counter"].value, 0)
 
 
 if __name__ == "__main__":

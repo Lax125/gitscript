@@ -2,15 +2,23 @@ from typing import Optional
 
 from gitscript.commit_range import CommitRange
 from gitscript.refs import Ref, resolve, HeadRef
-from gitscript.commands import commit, commit_string, branch, checkout, reset, merge, show, log, tag, cherry_pick, \
+from gitscript.commands import commit, commit_string, branch, checkout, reset, show, log, tag, cherry_pick, \
     rebase, delete_branch, delete_tag, cherry_pick_range, revert, revert_range, log_range, rev_list, rev_list_range
-from gitscript.operators import Operator
+from gitscript.operators import Condition, Operator
 from gitscript.repo import Repo
 
 
 class Statement:
     def run(self, repo: Repo):
         pass
+
+
+class MergeContinueSignal(Exception):
+    pass
+
+
+class MergeAbortSignal(Exception):
+    pass
 
 class Branch(Statement):
     def __init__(self, branch_name: str, ref: Ref = HeadRef()):
@@ -81,27 +89,21 @@ class Reset(Statement):
     def run(self, repo: Repo):
         reset(repo, self.ref)
 
-class Merge(Statement):
-    def __init__(self, ref: Ref, op: Operator):
+class CherryPick(Statement):
+    def __init__(self, ref: Ref, op: Operator = Operator.THEIRS):
         self.ref = ref
         self.op = op
 
     def run(self, repo: Repo):
-        merge(repo, self.ref, self.op)
-
-class CherryPick(Statement):
-    def __init__(self, ref: Ref):
-        self.ref = ref
-
-    def run(self, repo: Repo):
-        cherry_pick(repo, self.ref)
+        cherry_pick(repo, self.ref, self.op)
 
 class CherryPickRange(Statement):
-    def __init__(self, commit_range: CommitRange):
+    def __init__(self, commit_range: CommitRange, op: Operator = Operator.THEIRS):
         self.range = commit_range
+        self.op = op
 
     def run(self, repo: Repo):
-        cherry_pick_range(repo, self.range)
+        cherry_pick_range(repo, self.range, self.op)
 
 class Revert(Statement):
     def __init__(self, ref: Ref):
@@ -169,23 +171,66 @@ class RevListRange(Statement):
     def run(self, repo: Repo):
         rev_list_range(repo, self.commit_range, self.limit, self.reverse)
 
+
+class MergeContinue(Statement):
+    def run(self, repo: Repo):
+        raise MergeContinueSignal()
+
+
+class MergeAbort(Statement):
+    def run(self, repo: Repo):
+        raise MergeAbortSignal()
+
 class Conflict(Statement):
-    def __init__(self, ref_a: Ref, ref_b: Ref, block_a: list[Statement], block_b: list[Statement]):
+    def __init__(
+            self,
+            ref_a: Ref,
+            ref_b: Ref,
+            block_a: list[Statement],
+            block_b: list[Statement],
+            condition: Condition = Condition.EQ,
+    ):
         self.ref_a = ref_a
         self.ref_b = ref_b
         self.block_a = block_a
         self.block_b = block_b
+        self.condition = condition
 
     def run(self, repo: Repo):
         while True:
-            value_a = resolve(self.ref_a, repo).value
-            value_b = resolve(self.ref_b, repo).value
+            commit_a = resolve(self.ref_a, repo)
+            commit_b = resolve(self.ref_b, repo)
+            block = self.block_a if _condition_matches(commit_a, commit_b, self.condition) else self.block_b
 
-            if value_a > value_b:
-                for statement in self.block_a:
+            try:
+                for statement in block:
                     statement.run(repo)
-            elif value_a < value_b:
-                for statement in self.block_b:
-                    statement.run(repo)
-            else:
+            except MergeContinueSignal:
+                continue
+            except MergeAbortSignal:
                 break
+
+            break
+
+
+def _condition_matches(commit_a, commit_b, condition: Condition) -> bool:
+    if condition == Condition.IS:
+        return commit_a is commit_b
+
+    value_a = commit_a.value
+    value_b = commit_b.value
+
+    if condition == Condition.GT:
+        return value_a > value_b
+    if condition == Condition.LT:
+        return value_a < value_b
+    if condition == Condition.EQ:
+        return value_a == value_b
+    if condition == Condition.NEQ:
+        return value_a != value_b
+    if condition == Condition.GTE:
+        return value_a >= value_b
+    if condition == Condition.LTE:
+        return value_a <= value_b
+
+    raise RuntimeError(f"Unknown condition: {condition}")

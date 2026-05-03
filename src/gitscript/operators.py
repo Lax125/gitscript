@@ -2,6 +2,8 @@ from enum import Enum
 
 
 class Operator(Enum):
+    OURS = "ours"
+    THEIRS = "theirs"
     ADD = "+"
     SUBTRACT = "-"
     MULTIPLY = "*"
@@ -13,3 +15,13 @@ class Operator(Enum):
     NEQ = "!="
     GTE = ">="
     LTE = "<="
+
+
+class Condition(Enum):
+    GT = ">"
+    LT = "<"
+    EQ = "=="
+    NEQ = "!="
+    GTE = ">="
+    LTE = "<="
+    IS = "is"

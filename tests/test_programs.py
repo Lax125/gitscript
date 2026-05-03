@@ -107,49 +107,55 @@ class ProgramTests(unittest.TestCase):
         self.assertIn("temp", repo.branches)
         self.assertEqual(repo.tags["saved"].value, 2)
 
-    def test_all_merge_strategies(self):
+    def test_all_cherry_pick_strategies(self):
         repo, output = run_program(
             """
             git commit -m 10
             git branch ten
             git commit -m 3
-            git merge ten -s=+
+            git cherry-pick ten -s=+
             git show
             git reset HEAD~1
-            git merge ten -s=-
+            git cherry-pick ten -s=-
             git show
             git reset HEAD~1
-            git merge ten -s=*
+            git cherry-pick ten -s=*
             git show
             git reset HEAD~1
-            git merge ten -s=/
+            git cherry-pick ten -s=/
             git show
             git reset HEAD~1
-            git merge ten -s=%
+            git cherry-pick ten -s=%
             git show
             git reset HEAD~1
-            git merge ten -s=>
+            git cherry-pick ten -s=>
             git show
             git reset HEAD~1
-            git merge ten -s=<
+            git cherry-pick ten -s=<
             git show
             git reset HEAD~1
-            git merge ten -s=>=
+            git cherry-pick ten -s=>=
             git show
             git reset HEAD~1
-            git merge ten -s=<=
+            git cherry-pick ten -s=<=
             git show
             git reset HEAD~1
-            git merge ten -s===
+            git cherry-pick ten -s===
             git show
             git reset HEAD~1
-            git merge ten -s=!=
+            git cherry-pick ten -s=!=
+            git show
+            git reset HEAD~1
+            git cherry-pick ten
+            git show
+            git reset HEAD~1
+            git cherry-pick ten -s=ours
             git show
             """
         )
 
-        self.assertEqual(output, "13\n-7\n30\n0\n3\n-1\n1\n-1\n1\n-1\n1\n")
-        self.assertEqual(repo.branches["main"].value, 1)
+        self.assertEqual(output, "13\n-7\n30\n0\n3\n0\n1\n0\n1\n0\n1\n10\n3\n")
+        self.assertEqual(repo.branches["main"].value, 3)
 
     def test_commit_refs_static_dynamic_parenthesized_and_missing_ancestor(self):
         repo, output = run_program(
@@ -200,12 +206,15 @@ class ProgramTests(unittest.TestCase):
             git rev-list -n 1
             git cherry-pick HEAD~5..HEAD~3
             git rev-list -n 2
+            git reset HEAD~2
+            git cherry-pick HEAD~5..HEAD~3 -s +
+            git rev-list -n 2
             git revert HEAD~7..HEAD~5
             git rev-list -n 2
             """
         )
 
-        self.assertEqual(output, "2\n-2\n2\n1\n-1\n-2\n")
+        self.assertEqual(output, "2\n-2\n2\n1\n1\n-1\n-1\n-2\n")
         self.assertEqual(repo.branches["main"].value, -1)
 
     def test_rebase_replays_current_branch_onto_target(self):
@@ -226,30 +235,44 @@ class ProgramTests(unittest.TestCase):
         self.assertEqual(output, "3\n2\n9\n1\n0\n")
         self.assertEqual(repo.branches["feature"].parent.parent, repo.branches["main"])
 
-    def test_conflict_loop_runs_until_refs_are_equal(self):
+    def test_merge_conflict_if_else_continue_and_abort(self):
         repo, output = run_program(
             """
-            git checkout -b a
-            git commit -m 48
+            git checkout -b counter
+            git commit -m 3
+            git checkout -b one
+            git commit -m 1
 
-            git checkout -b b
-            git commit -m 18
+            git checkout main
 
-            <<<<<<< a
-                git checkout a
-                git merge b -s=-
+            git merge -s >
+            <<<<<<< counter
+                git checkout counter
+                git cherry-pick one -s=-
+                git merge --continue
             =======
-                git checkout b
-                git merge a -s=-
-            >>>>>>> b
+                git merge --abort
+            >>>>>>> main
+
+            git show counter
+
+            git checkout main
+            git commit -m 9
+            git branch same
+            git merge -s is
+            <<<<<<< main
+                git commit -m 1
+            =======
+                git commit -m 2
+            >>>>>>> same
 
             git show
             """
         )
 
-        self.assertEqual(output, "6\n")
-        self.assertEqual(repo.branches["a"].value, 6)
-        self.assertEqual(repo.branches["b"].value, 6)
+        self.assertEqual(output, "0\n1\n")
+        self.assertEqual(repo.branches["counter"].value, 0)
+        self.assertEqual(repo.branches["main"].value, 1)
 
 
 if __name__ == "__main__":

@@ -6,6 +6,12 @@ git tag original_input
 git checkout -b reverted_input root
 git revert root..input
 
+# Example input: "cba"
+#
+# (root)
+#   0  <-  'c'  <-  'b'  <-  'a' (input, original_input)
+#      <- -'a'  <- -'b'  <- -'c' (reverted_input)
+
 git branch num_differences root
 git branch difference root
 <<<<<<< input

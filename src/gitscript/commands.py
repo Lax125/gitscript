@@ -30,14 +30,14 @@ def commit_string(repo: Repo, value: str):
     # move branch
     repo.branches[repo.HEAD] = new
 
-def cherry_pick(repo: Repo, ref: Ref):
+def cherry_pick(repo: Repo, ref: Ref, op: Operator = Operator.THEIRS):
     c = ref.resolve(repo)
-    commit(repo, c.value)
+    commit(repo, _apply_operator(repo.branches[repo.HEAD].value, c.value, op))
 
-def cherry_pick_range(repo: Repo, commit_range: CommitRange):
+def cherry_pick_range(repo: Repo, commit_range: CommitRange, op: Operator = Operator.THEIRS):
     # reverse resolved range to get back chronological ordering
     for c in commit_range.resolve(repo)[::-1]:
-        commit(repo, c.value)
+        commit(repo, _apply_operator(repo.branches[repo.HEAD].value, c.value, op))
 
 def revert(repo: Repo, ref: Ref):
     c = ref.resolve(repo)
@@ -46,26 +46,6 @@ def revert(repo: Repo, ref: Ref):
 def revert_range(repo: Repo, commit_range: CommitRange):
     for c in commit_range.resolve(repo):
         commit(repo, -c.value)
-
-def merge(repo, ref, op: Operator):
-    a = repo.branches[repo.HEAD].value
-    b = resolve(ref, repo).value
-
-    if op == Operator.ADD: v = a + b
-    elif op == Operator.SUBTRACT: v = a - b
-    elif op == Operator.MULTIPLY: v = a * b
-    elif op == Operator.DIVIDE: v = a // b
-    elif op == Operator.MODULO: v = a % b
-    elif op == Operator.GT: v = int(a > b) * 2 - 1
-    elif op == Operator.LT: v = int(a < b) * 2 - 1
-    elif op == Operator.EQ: v = int(a == b) * 2 - 1
-    elif op == Operator.NEQ: v = int(a != b) * 2 - 1
-    elif op == Operator.GTE: v = int(a >= b) * 2 - 1
-    elif op == Operator.LTE: v = int(a <= b) * 2 - 1
-    else:
-        raise RuntimeError(f"Unknown strategy: {op}")
-
-    commit(repo, v)
 
 def reset(repo, ref):
     repo.branches[repo.HEAD] = resolve(ref, repo)
@@ -166,3 +146,34 @@ def _commits_to_string(commits: list[Commit]) -> str:
 def _print_values(commits: list[Commit]) -> None:
     for c in commits:
         print(c.value)
+
+
+def _apply_operator(ours: int, theirs: int, op: Operator) -> int:
+    if op == Operator.OURS:
+        return ours
+    if op == Operator.THEIRS:
+        return theirs
+    if op == Operator.ADD:
+        return ours + theirs
+    if op == Operator.SUBTRACT:
+        return ours - theirs
+    if op == Operator.MULTIPLY:
+        return ours * theirs
+    if op == Operator.DIVIDE:
+        return ours // theirs
+    if op == Operator.MODULO:
+        return ours % theirs
+    if op == Operator.GT:
+        return int(ours > theirs)
+    if op == Operator.LT:
+        return int(ours < theirs)
+    if op == Operator.EQ:
+        return int(ours == theirs)
+    if op == Operator.NEQ:
+        return int(ours != theirs)
+    if op == Operator.GTE:
+        return int(ours >= theirs)
+    if op == Operator.LTE:
+        return int(ours <= theirs)
+
+    raise RuntimeError(f"Unknown strategy: {op}")

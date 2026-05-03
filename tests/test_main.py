@@ -78,15 +78,16 @@ class MainTests(unittest.TestCase):
                 "git checkout -b a",
                 "git commit -m 6",
                 "git checkout -b b",
-                "git commit -m 3",
+                "git commit -m 1",
+                "git merge -s >",
                 "<<<<<<< a",
                 "git checkout a",
-                "git merge b -s=-",
+                "git cherry-pick b -s=-",
+                "git merge --continue",
                 "=======",
-                "git checkout b",
-                "git merge a -s=-",
-                ">>>>>>> b",
-                "git show",
+                "git merge --abort",
+                ">>>>>>> main",
+                "git show a",
                 "quit",
             ]
         )
@@ -95,7 +96,7 @@ class MainTests(unittest.TestCase):
             with contextlib.redirect_stdout(output):
                 repl()
 
-        self.assertEqual(output.getvalue(), "3\n")
+        self.assertEqual(output.getvalue(), "0\n")
 
 
 if __name__ == "__main__":

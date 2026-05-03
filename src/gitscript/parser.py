@@ -4,7 +4,7 @@ from typing import Iterable
 
 from gitscript.commit_range import CommitRange
 from gitscript.refs import BranchRef, ConstantOffsetRef, DynamicOffsetRef, HeadRef, Ref
-from gitscript.operators import Operator
+from gitscript.operators import Condition, Operator
 from gitscript.statements import (
     Branch,
     Checkout,
@@ -17,7 +17,8 @@ from gitscript.statements import (
     DeleteTags,
     Log,
     LogRange,
-    Merge,
+    MergeAbort,
+    MergeContinue,
     Rebase,
     Revert,
     RevertRange,
@@ -42,6 +43,11 @@ class IncompleteInput(ParseError):
 class _Line:
     number: int
     text: str
+
+
+@dataclass
+class _MergeStart:
+    condition: Condition
 
 
 def parse(source: str | Iterable[str]) -> list[Statement]:
@@ -91,18 +97,29 @@ class _Parser:
                 break
 
             if stripped.startswith("<<<<<<<"):
-                statements.append(self._parse_conflict(line))
-                continue
+                raise self._error(line, "Conflict block must be preceded by git merge")
 
             if stripped.startswith(("=======", ">>>>>>>")):
                 break
 
-            statements.append(_parse_statement(line))
+            statement = _parse_statement(line)
             self.index += 1
+            if isinstance(statement, _MergeStart):
+                self._skip_ignored_lines()
+                conflict_start = self._current()
+                if conflict_start is None:
+                    if self.allow_incomplete:
+                        raise IncompleteInput(f"Line {line.number}: git merge needs a conflict block")
+                    raise self._error(line, "git merge needs a conflict block")
+                if not conflict_start.text.strip().startswith("<<<<<<<"):
+                    raise self._error(conflict_start, "git merge must be followed by a conflict block")
+                statements.append(self._parse_conflict(conflict_start, statement.condition))
+            else:
+                statements.append(statement)
 
         return statements
 
-    def _parse_conflict(self, start: _Line) -> Conflict:
+    def _parse_conflict(self, start: _Line, condition: Condition) -> Conflict:
         ref_a_text = start.text.strip()[7:].strip()
         if not ref_a_text:
             raise self._error(start, "Conflict start marker needs a commit reference")
@@ -130,19 +147,26 @@ class _Parser:
             raise self._error(end, "Conflict end marker needs a commit reference")
 
         self.index += 1
-        return Conflict(_parse_ref(ref_a_text, start.number), _parse_ref(ref_b_text, end.number), block_a, block_b)
+        return Conflict(_parse_ref(ref_a_text, start.number), _parse_ref(ref_b_text, end.number), block_a, block_b, condition)
 
     def _current(self) -> _Line | None:
         if self.index >= len(self.lines):
             return None
         return self.lines[self.index]
 
+    def _skip_ignored_lines(self) -> None:
+        while (line := self._current()) is not None:
+            stripped = line.text.strip()
+            if stripped and not _is_comment(stripped):
+                return
+            self.index += 1
+
     @staticmethod
     def _error(line: _Line, message: str) -> ParseError:
         return ParseError(f"Line {line.number}: {message}")
 
 
-def _parse_statement(line: _Line) -> Statement:
+def _parse_statement(line: _Line) -> Statement | _MergeStart:
     raw = _strip_comment(line.text).strip()
 
     if _is_commit_string_input(raw):
@@ -176,11 +200,7 @@ def _parse_statement(line: _Line) -> Statement:
     if command == "merge":
         return _parse_merge(args, line.number)
     if command == "cherry-pick":
-        _expect_count(args, 1, line.number, "git cherry-pick")
-        target = _parse_range_or_ref(args[0], line.number)
-        if isinstance(target, CommitRange):
-            return CherryPickRange(target)
-        return CherryPick(target)
+        return _parse_cherry_pick(args, line.number)
     if command == "revert":
         _expect_count(args, 1, line.number, "git revert")
         target = _parse_range_or_ref(args[0], line.number)
@@ -271,34 +291,69 @@ def _parse_commit(args: list[str], line_number: int, message_is_quoted: bool) ->
         raise ParseError(f"Line {line_number}: git commit -m needs an integer or quoted string") from exc
 
 
-def _parse_merge(args: list[str], line_number: int) -> Merge:
+def _parse_cherry_pick(args: list[str], line_number: int) -> CherryPick | CherryPickRange:
     if not args:
-        raise ParseError(f"Line {line_number}: git merge needs a commit reference")
+        raise ParseError(f"Line {line_number}: git cherry-pick needs a commit reference or range")
 
-    ref_text = args[0]
-    op = Operator.ADD
+    target = None
+    op = Operator.THEIRS
     i = 1
+    target = _parse_range_or_ref(args[0], line_number)
     while i < len(args):
         arg = args[i]
         if arg == "-s":
             if i + 1 >= len(args):
-                raise ParseError(f"Line {line_number}: git merge -s needs a strategy")
+                raise ParseError(f"Line {line_number}: git cherry-pick -s needs a strategy")
             op = _parse_operator(args[i + 1], line_number)
             i += 2
         elif arg.startswith("-s="):
             op = _parse_operator(arg[3:], line_number)
             i += 1
         else:
+            raise ParseError(f"Line {line_number}: Unexpected git cherry-pick argument: {arg}")
+
+    if isinstance(target, CommitRange):
+        return CherryPickRange(target, op)
+    return CherryPick(target, op)
+
+
+def _parse_merge(args: list[str], line_number: int) -> Statement | _MergeStart:
+    condition = Condition.EQ
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--continue":
+            _expect_count(args, 1, line_number, "git merge --continue")
+            return MergeContinue()
+        if arg == "--abort":
+            _expect_count(args, 1, line_number, "git merge --abort")
+            return MergeAbort()
+        if arg == "-s":
+            if i + 1 >= len(args):
+                raise ParseError(f"Line {line_number}: git merge -s needs a condition")
+            condition = _parse_condition(args[i + 1], line_number)
+            i += 2
+        elif arg.startswith("-s="):
+            condition = _parse_condition(arg[3:], line_number)
+            i += 1
+        else:
             raise ParseError(f"Line {line_number}: Unexpected git merge argument: {arg}")
 
-    return Merge(_parse_ref(ref_text, line_number), op)
+    return _MergeStart(condition)
 
 
 def _parse_operator(text: str, line_number: int) -> Operator:
     for op in Operator:
         if op.value == text:
             return op
-    raise ParseError(f"Line {line_number}: Unknown merge strategy: {text}")
+    raise ParseError(f"Line {line_number}: Unknown strategy: {text}")
+
+
+def _parse_condition(text: str, line_number: int) -> Condition:
+    for condition in Condition:
+        if condition.value == text:
+            return condition
+    raise ParseError(f"Line {line_number}: Unknown merge condition: {text}")
 
 
 def _parse_range_or_ref(text: str, line_number: int) -> Ref | CommitRange:

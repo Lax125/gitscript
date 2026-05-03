@@ -2,12 +2,13 @@ import unittest
 
 from gitscript.commit_range import CommitRange
 from gitscript.refs import BranchRef, ConstantOffsetRef, DynamicOffsetRef, HeadRef
-from gitscript.operators import Operator
+from gitscript.operators import Condition, Operator
 from gitscript.parser import IncompleteInput, ParseError, parse, parse_repl
 from gitscript.statements import (
     Branch,
     Checkout,
     CherryPickRange,
+    CherryPick,
     Commit,
     CommitString,
     Conflict,
@@ -15,7 +16,8 @@ from gitscript.statements import (
     DeleteTags,
     Log,
     LogRange,
-    Merge,
+    MergeAbort,
+    MergeContinue,
     Revert,
     RevertRange,
     RevList,
@@ -32,7 +34,7 @@ class ParserTests(unittest.TestCase):
             git commit --amend -m 42
             git commit -m "Hello, World!"
             git checkout -b feature
-            git merge main -s=-
+            git cherry-pick main -s=-
             git show
             git log HEAD~1
             """
@@ -53,7 +55,7 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(statements[3].branch_name, "feature")
         self.assertIsInstance(statements[3].create_at, HeadRef)
 
-        self.assertIsInstance(statements[4], Merge)
+        self.assertIsInstance(statements[4], CherryPick)
         self.assertIsInstance(statements[4].ref, BranchRef)
         self.assertEqual(statements[4].ref.name, "main")
         self.assertEqual(statements[4].op, Operator.SUBTRACT)
@@ -95,28 +97,30 @@ class ParserTests(unittest.TestCase):
         self.assertIsInstance(statements[0], CommitString)
         self.assertEqual(statements[0].value, "42")
 
-    def test_merge_strategy_option_accepts_space_and_equals_forms(self):
+    def test_cherry_pick_strategy_option_accepts_space_and_equals_forms(self):
         statements = parse(
             """
-            git merge main -s -
-            git merge main -s=-
+            git cherry-pick main -s -
+            git cherry-pick main -s=-
             """
         )
 
-        self.assertIsInstance(statements[0], Merge)
+        self.assertIsInstance(statements[0], CherryPick)
         self.assertEqual(statements[0].op, Operator.SUBTRACT)
-        self.assertIsInstance(statements[1], Merge)
+        self.assertIsInstance(statements[1], CherryPick)
         self.assertEqual(statements[1].op, Operator.SUBTRACT)
 
     def test_parse_conflict_block(self):
         statements = parse(
             """
+            git merge -s >
             <<<<<<< a
                 git checkout a
-                git merge b -s=-
+                git cherry-pick b -s=-
+                git merge --continue
             =======
                 git checkout b
-                git merge a -s=-
+                git merge --abort
             >>>>>>> b
             """
         )
@@ -126,10 +130,28 @@ class ParserTests(unittest.TestCase):
         self.assertIsInstance(conflict, Conflict)
         self.assertIsInstance(conflict.ref_a, BranchRef)
         self.assertEqual(conflict.ref_a.name, "a")
-        self.assertEqual(len(conflict.block_a), 2)
+        self.assertEqual(conflict.condition, Condition.GT)
+        self.assertEqual(len(conflict.block_a), 3)
         self.assertEqual(len(conflict.block_b), 2)
         self.assertIsInstance(conflict.ref_b, BranchRef)
         self.assertEqual(conflict.ref_b.name, "b")
+
+    def test_parse_merge_continue_and_abort(self):
+        statements = parse(
+            """
+            git merge -s is
+            <<<<<<< a
+                git merge --continue
+            =======
+                git merge --abort
+            >>>>>>> b
+            """
+        )
+
+        conflict = statements[0]
+        self.assertEqual(conflict.condition, Condition.IS)
+        self.assertIsInstance(conflict.block_a[0], MergeContinue)
+        self.assertIsInstance(conflict.block_b[0], MergeAbort)
 
     def test_parse_branch_delete_and_create_at_ref(self):
         statements = parse(
@@ -159,6 +181,7 @@ class ParserTests(unittest.TestCase):
         statements = parse(
             """
             git cherry-pick HEAD~2..HEAD
+            git cherry-pick HEAD~2..HEAD -s +
             git revert HEAD
             git revert HEAD~2..HEAD
             git log -n 2 --reverse HEAD~2..HEAD
@@ -169,16 +192,19 @@ class ParserTests(unittest.TestCase):
 
         self.assertIsInstance(statements[0], CherryPickRange)
         self.assertIsInstance(statements[0].range, CommitRange)
-        self.assertIsInstance(statements[1], Revert)
-        self.assertIsInstance(statements[2], RevertRange)
-        self.assertIsInstance(statements[2].range, CommitRange)
-        self.assertIsInstance(statements[3], LogRange)
-        self.assertEqual(statements[3].limit, 2)
-        self.assertTrue(statements[3].reverse)
-        self.assertIsInstance(statements[4], RevList)
-        self.assertEqual(statements[4].limit, 3)
-        self.assertIsInstance(statements[5], RevListRange)
-        self.assertTrue(statements[5].reverse)
+        self.assertEqual(statements[0].op, Operator.THEIRS)
+        self.assertIsInstance(statements[1], CherryPickRange)
+        self.assertEqual(statements[1].op, Operator.ADD)
+        self.assertIsInstance(statements[2], Revert)
+        self.assertIsInstance(statements[3], RevertRange)
+        self.assertIsInstance(statements[3].range, CommitRange)
+        self.assertIsInstance(statements[4], LogRange)
+        self.assertEqual(statements[4].limit, 2)
+        self.assertTrue(statements[4].reverse)
+        self.assertIsInstance(statements[5], RevList)
+        self.assertEqual(statements[5].limit, 3)
+        self.assertIsInstance(statements[6], RevListRange)
+        self.assertTrue(statements[6].reverse)
 
     def test_parse_log_ref_options(self):
         statements = parse("git log --reverse -n 1 HEAD")
@@ -204,7 +230,7 @@ class ParserTests(unittest.TestCase):
 
     def test_repl_parse_reports_incomplete_conflict_blocks(self):
         with self.assertRaises(IncompleteInput):
-            parse_repl("<<<<<<< a\n    git checkout a\n")
+            parse_repl("git merge\n<<<<<<< a\n    git checkout a\n")
 
         with self.assertRaises(ParseError):
             parse("<<<<<<< a\n    git checkout a\n")
