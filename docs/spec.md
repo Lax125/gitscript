@@ -119,6 +119,70 @@ git checkout -b <branch-name> [<commit-ref>]
 
 ---
 
+### `git config`
+
+```gitscript
+git config commit.verbose true
+git config commit.verbose false
+git config merge.verbosity 0
+git config merge.verbosity 1
+git config merge.verbosity 2
+```
+
+Configures debug logging.
+
+Debug logs are diagnostic output and should be written separately from program output so commands like `git log`, `git show`, and `git rev-list` remain usable as program output.
+
+#### `commit.verbose`
+
+Default: `false`
+
+When `commit.verbose` is `true`, GitScript logs every new commit created by any process, including:
+
+* `git commit`
+* string commits, once per character commit
+* `git cherry-pick`
+* `git cherry-pick <commit-range>`, once per replayed commit
+* `git revert`
+* `git revert <commit-range>`, once per replayed commit
+* `git rebase`, once per replayed commit
+
+`git commit --amend` should log the replacement commit that is created.
+
+Operations that only move references, such as `git reset`, `git branch`, `git checkout`, and `git tag`, do not create commits and therefore do not emit commit logs.
+
+Each commit log entry should include enough information to identify:
+
+* the active branch receiving the new commit
+* the new commit's value
+* the new commit's parent value, or that it has no parent
+* the operation that created it
+
+#### `merge.verbosity`
+
+Default: `0`
+
+Merge verbosity controls debug logging for merge-conflict control flow:
+
+* `0`: no merge debug logging
+* `1`: log when a merge block begins evaluating and log each conditional check
+* `2`: log everything from `1`, plus merge continues and aborts
+
+At verbosity `1`, each conditional-check log should include:
+
+* the merge label, if present
+* the condition
+* the two resolved commit values
+* whether the top or bottom block was selected
+
+At verbosity `2`, continue and abort logs should include:
+
+* whether the signal is `continue` or `abort`
+* the target label, if present
+* the merge block that handles the signal
+
+---
+
 ### `git commit` (integer)
 
 ```gitscript
