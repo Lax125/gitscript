@@ -1,10 +1,19 @@
 import unittest
+from pathlib import Path
 
 from gitscript.parser import ParseError, parse
 from utils import run_program, run_program_with_debug
 
 
 class ProgramTests(unittest.TestCase):
+    def test_quine_example_prints_exactly_itself(self):
+        source = Path("examples/quine.gs").read_text(encoding="utf-8")
+
+        repo, output = run_program(source)
+
+        self.assertEqual(output, source)
+        self.assertEqual(repo.branches["output"].value, ord("t"))
+
     def test_comments_blank_lines_and_string_escaping(self):
         repo, output = run_program(
             r'''
