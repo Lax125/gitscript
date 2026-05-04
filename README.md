@@ -89,3 +89,14 @@ Outputs:
 1
 0
 ```
+
+## Philosophy
+
+GitScript treats Git history as a computational model:
+
+* time = memory
+* branches = variables
+* commits = values
+* conflicts = control flow
+
+Programs are less about *what* happens, and more about *how history evolves*.

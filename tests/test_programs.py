@@ -91,6 +91,17 @@ class ProgramTests(unittest.TestCase):
         self.assertIn("temp", repo.branches)
         self.assertEqual(repo.tags["saved"].value, 2)
 
+    def test_branch_without_arguments_lists_global_branches(self):
+        repo, output = run_program(
+            """
+            git checkout -b feature
+            git branch
+            """
+        )
+
+        self.assertEqual(output, "   main !\n * feature\n")
+        self.assertEqual(repo.HEAD, "feature")
+
     def test_all_cherry_pick_strategies(self):
         repo, output = run_program(
             """
@@ -699,6 +710,49 @@ class ProgramTests(unittest.TestCase):
                 git peek saved
                 """
             )
+
+    def test_branch_listing_shows_function_bindings_and_protected_branches(self):
+        repo, output = run_program(
+            """
+            git checkout -b feature
+            git branch result
+            git config alias.inspect -b output -p owner '!
+                git branch scratch
+                git checkout scratch
+                git branch
+            '
+            git inspect result main
+            """
+        )
+
+        self.assertEqual(
+            output,
+            "   main ! -> caller:feature\n"
+            " * scratch\n"
+            "   output -> caller:result\n"
+            "   owner ! -> caller:main\n",
+        )
+        self.assertEqual(repo.HEAD, "feature")
+
+    def test_branch_listing_shows_nested_binding_layers(self):
+        repo, output = run_program(
+            """
+            git branch result
+            git config alias.inner -b target '!
+                git branch
+            '
+            git config alias.outer -b output '!
+                git inner $output
+            '
+            git outer result
+            """
+        )
+
+        self.assertEqual(
+            output,
+            " * main ! -> caller:main\n"
+            "   target -> caller:output -> caller:result\n",
+        )
 
     def test_global_exit_stops_execution(self):
         repo, output = run_program(

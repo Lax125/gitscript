@@ -17,6 +17,7 @@ from gitscript.statements import (
     Conflict,
     DeleteBranches,
     DeleteTags,
+    ListBranches,
     Log,
     LogRange,
     MergeAbort,
@@ -284,6 +285,15 @@ class StatementTests(unittest.TestCase):
 
         self.assertNotIn("left", repo.branches)
         self.assertNotIn("right", repo.branches)
+
+    def test_list_branches_prints_visible_branches(self):
+        repo = Repo()
+        Branch("feature").run(repo)
+        Checkout("feature").run(repo)
+
+        output = capture_output(ListBranches(), repo)
+
+        self.assertEqual(output, "   main !\n * feature\n")
 
     def test_delete_tags_removes_named_tags(self):
         repo = Repo()

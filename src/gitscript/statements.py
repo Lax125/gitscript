@@ -62,6 +62,15 @@ class Branch(Statement):
     def run(self, repo: Repo):
         branch(repo, self.branch_name, self.ref)
 
+
+class ListBranches(Statement):
+    def run(self, repo: Repo):
+        for entry in repo.branch_listing():
+            protected = " !" if entry.protected else ""
+            binding = "".join(f" -> caller:{name}" for name in entry.binding_chain)
+            print(f" {'*' if entry.current else ' '} {entry.name}{protected}{binding}")
+
+
 class DeleteBranches(Statement):
     def __init__(self, branch_names: list[str]):
         self.branch_names = branch_names
@@ -462,13 +471,13 @@ def _bind_parameter_value(
     value_text = _validate_parameter_value(repo, parameter, value)
     values[parameter.name] = value_text
     if parameter.kind == "-l":
-        bindings[value_text] = repo.bind_name(value)
+        bindings[value_text] = repo.bind_caller_name(value)
     elif parameter.kind == "-b":
-        bindings[value_text] = repo.bind_branch(value)
+        bindings[value_text] = repo.bind_caller_branch(value)
     elif parameter.kind == "-p":
-        bindings[value_text] = repo.protect_binding(repo.bind_branch(value), value)
+        bindings[value_text] = repo.protect_binding(repo.bind_caller_branch(value), repo.visible_name(value))
     elif parameter.kind == "-t":
-        bindings[value_text] = repo.bind_tag(value)
+        bindings[value_text] = repo.bind_caller_tag(value)
     elif parameter.kind == "-r":
         from gitscript.parser import _parse_ref
 

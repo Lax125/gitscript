@@ -12,6 +12,14 @@ class FunctionFrame:
     caller_head: str = "main"
 
 
+@dataclass
+class BranchListingEntry:
+    name: str
+    current: bool
+    protected: bool = False
+    binding_chain: list[str] = field(default_factory=list)
+
+
 class RefBinding:
     def resolve(self) -> Commit:
         raise NotImplementedError
@@ -21,6 +29,12 @@ class RefBinding:
 
     def is_tag(self) -> bool:
         return False
+
+    def is_protected(self) -> bool:
+        return False
+
+    def branch_binding_chain(self) -> list[str]:
+        return []
 
     def set_branch(self, commit: Commit) -> None:
         raise RuntimeError("Reference is not a branch")
@@ -50,6 +64,11 @@ class BranchBinding(RefBinding):
 
     def is_branch(self) -> bool:
         return self.name in self.branches
+
+    def branch_binding_chain(self) -> list[str]:
+        if not self.is_branch():
+            return []
+        return [self.name]
 
     def set_branch(self, commit: Commit) -> None:
         if self.name not in self.branches:
@@ -100,6 +119,11 @@ class NameBinding(RefBinding):
     def is_tag(self) -> bool:
         return self.name in self.tags
 
+    def branch_binding_chain(self) -> list[str]:
+        if not self.is_branch():
+            return []
+        return [self.name]
+
     def set_branch(self, commit: Commit) -> None:
         if self.name not in self.branches:
             raise RuntimeError(f"Branch {self.name} does not exist")
@@ -135,6 +159,47 @@ class CommitBinding(RefBinding):
 
 
 @dataclass
+class CallerBinding(RefBinding):
+    binding: RefBinding
+    caller_name: str
+
+    def resolve(self) -> Commit:
+        return self.binding.resolve()
+
+    def is_branch(self) -> bool:
+        return self.binding.is_branch()
+
+    def is_tag(self) -> bool:
+        return self.binding.is_tag()
+
+    def is_protected(self) -> bool:
+        return self.binding.is_protected()
+
+    def branch_binding_chain(self) -> list[str]:
+        if not self.is_branch():
+            return []
+        chain = self.binding.branch_binding_chain()
+        if chain and chain[0] == self.caller_name:
+            return chain
+        return [self.caller_name, *chain]
+
+    def set_branch(self, commit: Commit) -> None:
+        self.binding.set_branch(commit)
+
+    def create_branch(self, commit: Commit) -> None:
+        self.binding.create_branch(commit)
+
+    def create_tag(self, commit: Commit) -> None:
+        self.binding.create_tag(commit)
+
+    def delete_branch(self) -> None:
+        self.binding.delete_branch()
+
+    def delete_tag(self) -> None:
+        self.binding.delete_tag()
+
+
+@dataclass
 class ProtectedBinding(RefBinding):
     binding: RefBinding
     name: str
@@ -147,6 +212,12 @@ class ProtectedBinding(RefBinding):
 
     def is_tag(self) -> bool:
         return self.binding.is_tag()
+
+    def is_protected(self) -> bool:
+        return True
+
+    def branch_binding_chain(self) -> list[str]:
+        return self.binding.branch_binding_chain()
 
     def set_branch(self, commit: Commit) -> None:
         self.binding.set_branch(commit)
@@ -188,7 +259,10 @@ class Repo:
     def push_function_frame(self, bindings: dict[str, RefBinding], parameters: dict[str, str]) -> None:
         caller_head = self.HEAD
         bindings = dict(bindings)
-        bindings["main"] = self.protect_binding(self.bind_branch(caller_head), "main")
+        bindings["main"] = self.protect_binding(
+            self.bind_caller_branch(caller_head),
+            "main",
+        )
         self.call_stack.append(FunctionFrame(bindings=bindings, parameters=parameters, caller_head=caller_head))
         self.HEAD = "main"
 
@@ -359,13 +433,68 @@ class Repo:
         return TagBinding(self.tags, name)
 
     def bind_name(self, name: str) -> RefBinding:
+        binding = self._binding(name)
+        if binding is not None:
+            return binding
+
         frame = self.current_frame()
         if frame is not None:
             return NameBinding(frame.branches, frame.tags, name)
         return NameBinding(self.branches, self.tags, name)
 
+    def bind_caller_branch(self, name: str) -> RefBinding:
+        return CallerBinding(self.bind_branch(name), self.visible_name(name))
+
+    def bind_caller_name(self, name: str) -> RefBinding:
+        return CallerBinding(self.bind_name(name), self.visible_name(name))
+
+    def bind_caller_tag(self, name: str) -> RefBinding:
+        return CallerBinding(self.bind_tag(name), self.visible_name(name))
+
     def protect_binding(self, binding: RefBinding, name: str) -> RefBinding:
         return ProtectedBinding(binding, name)
+
+    def visible_name(self, name: str) -> str:
+        frame = self.current_frame()
+        if frame is None:
+            return name
+
+        for parameter_name, parameter_value in frame.parameters.items():
+            if parameter_value == name:
+                return parameter_name
+        return name
+
+    def branch_listing(self) -> list[BranchListingEntry]:
+        frame = self.current_frame()
+        if frame is None:
+            return [
+                BranchListingEntry(name, name == self.HEAD, name == "main")
+                for name in self.branches
+            ]
+
+        entries: list[BranchListingEntry] = []
+        if "main" in frame.bindings and frame.bindings["main"].is_branch():
+            entries.append(self._branch_binding_entry("main", frame.bindings["main"]))
+
+        entries.extend(
+            BranchListingEntry(name, name == self.HEAD)
+            for name in frame.branches
+        )
+
+        for name, binding in frame.bindings.items():
+            if name == "main" or not binding.is_branch():
+                continue
+            entries.append(self._branch_binding_entry(name, binding))
+
+        return entries
+
+    def _branch_binding_entry(self, name: str, binding: RefBinding) -> BranchListingEntry:
+        return BranchListingEntry(
+            self.visible_name(name),
+            name == self.HEAD,
+            binding.is_protected(),
+            binding.branch_binding_chain(),
+        )
 
     def protected_caller_names(self) -> set[str]:
         names = {"main", self.HEAD}

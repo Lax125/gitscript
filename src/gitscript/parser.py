@@ -20,6 +20,7 @@ from gitscript.statements import (
     DeleteBranches,
     DeleteTags,
     Exit,
+    ListBranches,
     Log,
     LogRange,
     MergeAbort,
@@ -282,6 +283,9 @@ def _parse_statement(line: _Line) -> Statement | _MergeStart:
 
 
 def _parse_branch(args: list[str], line_number: int) -> Statement:
+    if not args:
+        return ListBranches()
+
     if args and args[0] == "-d":
         if len(args) < 2:
             raise ParseError(f"Line {line_number}: git branch -d needs at least one branch name")

@@ -78,13 +78,59 @@ Integer literals are decimal integers.
 ### `git branch`
 
 ```gitscript
+git branch
 git branch <name> [<commit-ref>]
 ```
 
-Creates a new branch.
+With no arguments, lists branches visible in the current execution frame.
+
+With arguments, creates a new branch.
 
 * If a commit is specified, the branch points there
 * Otherwise, it points to the current commit
+
+#### Listing Branches
+
+`git branch` prints one line per visible branch.
+
+The listing includes:
+
+* branches owned by the current frame
+* branch bindings explicitly passed into the current frame
+* the protected `main` binding inside a function frame
+
+Branches not visible in the current frame are not listed.
+
+The current branch is marked with `*` in the first column, matching Git. Non-current branches use a space in that column.
+
+Protected branches are marked with `!` after the branch name. A protected branch cannot be deleted in the current frame. This includes global `main`, function-frame `main`, and branches passed through `-p`.
+
+Branch bindings are shown with `->`. The left side is the name visible in the current frame, and the right side describes the branch in the caller frame that it binds to. Bindings can point through multiple caller frames; each layer is shown from inner to outer.
+
+Example at global scope:
+
+```text
+   main !
+ * feature
+```
+
+Example inside a function called from branch `feature`, with an unprotected `-b output`, protected `-p owner`, and `main` bound to the caller's current branch:
+
+```text
+   main ! -> caller:feature
+ * scratch
+   output -> caller:result
+   owner ! -> caller:main
+```
+
+Example inside nested function calls:
+
+```text
+   main ! -> caller:worker -> caller:feature
+   target -> caller:output -> caller:result
+```
+
+The exact caller labels are diagnostic text only. The semantic requirements are that the listing identifies whether a visible branch is protected and whether it is a binding to a branch outside the current frame.
 
 ---
 
@@ -745,14 +791,3 @@ This happens implicitly after operations like:
 * Infinite loops are easy to create (and expected)
 
 ---
-
-## Philosophy
-
-GitScript treats Git history as a computational model:
-
-* time = memory
-* branches = variables
-* commits = values
-* conflicts = control flow
-
-Programs are less about *what* happens, and more about *how history evolves*.

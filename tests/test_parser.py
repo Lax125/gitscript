@@ -19,6 +19,7 @@ from gitscript.statements import (
     DeleteBranches,
     DeleteTags,
     Exit,
+    ListBranches,
     Log,
     LogRange,
     MergeAbort,
@@ -260,20 +261,22 @@ class ParserTests(unittest.TestCase):
     def test_parse_branch_delete_and_create_at_ref(self):
         statements = parse(
             """
+            git branch
             git branch saved HEAD~1
             git branch -d stale old
             git checkout -b feature HEAD~2
             """
         )
 
-        self.assertIsInstance(statements[0], Branch)
-        self.assertEqual(statements[0].branch_name, "saved")
-        self.assertIsInstance(statements[0].ref, ConstantOffsetRef)
-        self.assertIsInstance(statements[1], DeleteBranches)
-        self.assertEqual(statements[1].branch_names, ["stale", "old"])
-        self.assertIsInstance(statements[2], Checkout)
-        self.assertEqual(statements[2].branch_name, "feature")
-        self.assertIsInstance(statements[2].create_at, ConstantOffsetRef)
+        self.assertIsInstance(statements[0], ListBranches)
+        self.assertIsInstance(statements[1], Branch)
+        self.assertEqual(statements[1].branch_name, "saved")
+        self.assertIsInstance(statements[1].ref, ConstantOffsetRef)
+        self.assertIsInstance(statements[2], DeleteBranches)
+        self.assertEqual(statements[2].branch_names, ["stale", "old"])
+        self.assertIsInstance(statements[3], Checkout)
+        self.assertEqual(statements[3].branch_name, "feature")
+        self.assertIsInstance(statements[3].create_at, ConstantOffsetRef)
 
     def test_branch_and_tag_names_allow_restricted_character_set_and_keywords(self):
         statements = parse(
