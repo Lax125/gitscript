@@ -9,9 +9,8 @@ git revert root..input
 
 # Example input: "aba"
 #
-# (root)
-#   'a' <- 'b' <- 'a' (input, original_input)
-#   -'a' <- -'b' <- -'a' (reverted_input)
+# 0 (root) <- 'a' <- 'b' <- 'a' (input, original_input)
+#          <- -'a' <- -'b' <- -'a' (reverted_input)
 #
 # The two walking branches eventually collide at root. A mismatch resets both
 # walkers to root so the loop exits early.

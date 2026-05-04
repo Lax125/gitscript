@@ -1,4 +1,171 @@
+from dataclasses import dataclass, field
+
 from gitscript.commit import Commit
+
+
+@dataclass
+class FunctionFrame:
+    branches: dict[str, Commit] = field(default_factory=dict)
+    tags: dict[str, Commit] = field(default_factory=dict)
+    bindings: dict[str, "RefBinding"] = field(default_factory=dict)
+    parameters: dict[str, str] = field(default_factory=dict)
+    caller_head: str = "main"
+
+
+class RefBinding:
+    def resolve(self) -> Commit:
+        raise NotImplementedError
+
+    def is_branch(self) -> bool:
+        return False
+
+    def is_tag(self) -> bool:
+        return False
+
+    def set_branch(self, commit: Commit) -> None:
+        raise RuntimeError("Reference is not a branch")
+
+    def create_branch(self, commit: Commit) -> None:
+        raise RuntimeError("Reference cannot create a branch")
+
+    def create_tag(self, commit: Commit) -> None:
+        raise RuntimeError("Reference cannot create a tag")
+
+    def delete_branch(self) -> None:
+        raise RuntimeError("Reference is not a branch")
+
+    def delete_tag(self) -> None:
+        raise RuntimeError("Reference is not a tag")
+
+
+@dataclass
+class BranchBinding(RefBinding):
+    branches: dict[str, Commit]
+    name: str
+
+    def resolve(self) -> Commit:
+        if self.name not in self.branches:
+            raise RuntimeError(f"Branch {self.name} does not exist")
+        return self.branches[self.name]
+
+    def is_branch(self) -> bool:
+        return self.name in self.branches
+
+    def set_branch(self, commit: Commit) -> None:
+        if self.name not in self.branches:
+            raise RuntimeError(f"Branch {self.name} does not exist")
+        self.branches[self.name] = commit
+
+    def delete_branch(self) -> None:
+        if self.name not in self.branches:
+            raise RuntimeError(f"Branch {self.name} does not exist")
+        del self.branches[self.name]
+
+
+@dataclass
+class TagBinding(RefBinding):
+    tags: dict[str, Commit]
+    name: str
+
+    def resolve(self) -> Commit:
+        if self.name not in self.tags:
+            raise RuntimeError(f"tag {self.name} does not exist")
+        return self.tags[self.name]
+
+    def is_tag(self) -> bool:
+        return self.name in self.tags
+
+    def delete_tag(self) -> None:
+        if self.name not in self.tags:
+            raise RuntimeError(f"tag {self.name} does not exist")
+        del self.tags[self.name]
+
+
+@dataclass
+class NameBinding(RefBinding):
+    branches: dict[str, Commit]
+    tags: dict[str, Commit]
+    name: str
+
+    def resolve(self) -> Commit:
+        if self.name in self.tags:
+            return self.tags[self.name]
+        if self.name in self.branches:
+            return self.branches[self.name]
+        raise RuntimeError(f"Unknown tag or branch: {self.name}")
+
+    def is_branch(self) -> bool:
+        return self.name in self.branches
+
+    def is_tag(self) -> bool:
+        return self.name in self.tags
+
+    def set_branch(self, commit: Commit) -> None:
+        if self.name not in self.branches:
+            raise RuntimeError(f"Branch {self.name} does not exist")
+        self.branches[self.name] = commit
+
+    def create_branch(self, commit: Commit) -> None:
+        if self.name in self.branches or self.name in self.tags:
+            raise RuntimeError(f"Branch or tag {self.name} already exists")
+        self.branches[self.name] = commit
+
+    def create_tag(self, commit: Commit) -> None:
+        if self.name in self.branches or self.name in self.tags:
+            raise RuntimeError(f"Branch or tag {self.name} already exists")
+        self.tags[self.name] = commit
+
+    def delete_branch(self) -> None:
+        if self.name not in self.branches:
+            raise RuntimeError(f"Branch {self.name} does not exist")
+        del self.branches[self.name]
+
+    def delete_tag(self) -> None:
+        if self.name not in self.tags:
+            raise RuntimeError(f"tag {self.name} does not exist")
+        del self.tags[self.name]
+
+
+@dataclass
+class CommitBinding(RefBinding):
+    commit: Commit
+
+    def resolve(self) -> Commit:
+        return self.commit
+
+
+@dataclass
+class ProtectedBinding(RefBinding):
+    binding: RefBinding
+    name: str
+
+    def resolve(self) -> Commit:
+        return self.binding.resolve()
+
+    def is_branch(self) -> bool:
+        return self.binding.is_branch()
+
+    def is_tag(self) -> bool:
+        return self.binding.is_tag()
+
+    def set_branch(self, commit: Commit) -> None:
+        self.binding.set_branch(commit)
+
+    def create_branch(self, commit: Commit) -> None:
+        self.binding.create_branch(commit)
+
+    def create_tag(self, commit: Commit) -> None:
+        self.binding.create_tag(commit)
+
+    def delete_branch(self) -> None:
+        if not self.binding.is_branch():
+            self.binding.delete_branch()
+        raise RuntimeError(f"Cannot delete protected branch {self.name}")
+
+    def delete_tag(self) -> None:
+        if not self.binding.is_tag():
+            self.binding.delete_tag()
+        raise RuntimeError(f"Cannot delete protected tag {self.name}")
 
 
 class Repo:
@@ -11,15 +178,204 @@ class Repo:
         self.commit_verbose = False
         self.merge_verbosity = 0
         self.aliases = {}
-        self.call_stack = []
+        self.call_stack: list[FunctionFrame] = []
+
+    def current_frame(self) -> FunctionFrame | None:
+        if not self.call_stack:
+            return None
+        return self.call_stack[-1]
+
+    def push_function_frame(self, bindings: dict[str, RefBinding], parameters: dict[str, str]) -> None:
+        caller_head = self.HEAD
+        bindings = dict(bindings)
+        bindings["main"] = self.protect_binding(self.bind_branch(caller_head), "main")
+        self.call_stack.append(FunctionFrame(bindings=bindings, parameters=parameters, caller_head=caller_head))
+        self.HEAD = "main"
+
+    def pop_function_frame(self) -> None:
+        frame = self.call_stack.pop()
+        self.HEAD = frame.caller_head
 
     def resolve(self, tag_or_branch_name: str) -> Commit:
-        if tag_or_branch_name in self.tags:
-            return self.tags[tag_or_branch_name]
-        elif tag_or_branch_name in self.branches:
-            return self.branches[tag_or_branch_name]
-        else:
+        binding = self._binding(tag_or_branch_name)
+        if binding is not None:
+            return binding.resolve()
+
+        frame = self.current_frame()
+        if frame is not None:
+            if tag_or_branch_name in frame.tags:
+                return frame.tags[tag_or_branch_name]
+            if tag_or_branch_name in frame.branches:
+                return frame.branches[tag_or_branch_name]
             raise RuntimeError(f"Unknown tag or branch: {tag_or_branch_name}")
 
+        if tag_or_branch_name in self.tags:
+            return self.tags[tag_or_branch_name]
+        if tag_or_branch_name in self.branches:
+            return self.branches[tag_or_branch_name]
+        raise RuntimeError(f"Unknown tag or branch: {tag_or_branch_name}")
+
     def has(self, tag_or_branch_name: str) -> bool:
-        return tag_or_branch_name in self.tags or tag_or_branch_name in self.branches
+        return self.has_branch(tag_or_branch_name) or self.has_tag(tag_or_branch_name)
+
+    def has_branch(self, name: str) -> bool:
+        binding = self._binding(name)
+        if binding is not None:
+            return binding.is_branch()
+
+        frame = self.current_frame()
+        if frame is not None:
+            return name in frame.branches
+        return name in self.branches
+
+    def has_tag(self, name: str) -> bool:
+        binding = self._binding(name)
+        if binding is not None:
+            return binding.is_tag()
+
+        frame = self.current_frame()
+        if frame is not None:
+            return name in frame.tags
+        return name in self.tags
+
+    def current_commit(self) -> Commit:
+        return self.bind_branch(self.HEAD).resolve()
+
+    def set_current_commit(self, commit: Commit) -> None:
+        self.bind_branch(self.HEAD).set_branch(commit)
+
+    def create_branch(self, name: str, commit: Commit) -> None:
+        if name == "main" and self.current_frame() is not None:
+            raise RuntimeError("Cannot create protected branch main")
+        binding = self._binding(name)
+        if binding is not None:
+            if binding.is_branch() or binding.is_tag():
+                raise RuntimeError(f"Branch or tag {name} already exists")
+            binding.create_branch(commit)
+            return
+        if self.has(name):
+            raise RuntimeError(f"Branch or tag {name} already exists")
+
+        frame = self.current_frame()
+        if frame is not None:
+            frame.branches[name] = commit
+        else:
+            self.branches[name] = commit
+
+    def delete_branch(self, name: str) -> None:
+        if name == "main":
+            raise RuntimeError("Cannot delete protected branch main")
+        if self.HEAD == name:
+            raise RuntimeError(f"Cannot delete current branch {name}")
+
+        binding = self._binding(name)
+        if binding is not None:
+            binding.delete_branch()
+            return
+
+        frame = self.current_frame()
+        if frame is not None:
+            if name not in frame.branches:
+                raise RuntimeError(f"Branch {name} does not exist")
+            del frame.branches[name]
+            return
+
+        if name not in self.branches:
+            raise RuntimeError(f"Branch {name} does not exist")
+        del self.branches[name]
+
+    def checkout(self, name: str) -> None:
+        if not self.has_branch(name):
+            raise RuntimeError(f"Branch {name} does not exist")
+        self.HEAD = name
+
+    def create_tag(self, name: str, commit: Commit) -> None:
+        if name == "main" and self.current_frame() is not None:
+            raise RuntimeError("Cannot create tag main")
+        binding = self._binding(name)
+        if binding is not None:
+            if binding.is_branch() or binding.is_tag():
+                raise RuntimeError(f"Branch or tag {name} already exists")
+            binding.create_tag(commit)
+            return
+        if self.has(name):
+            raise RuntimeError(f"Branch or tag {name} already exists")
+
+        frame = self.current_frame()
+        if frame is not None:
+            frame.tags[name] = commit
+        else:
+            self.tags[name] = commit
+
+    def delete_tag(self, name: str) -> None:
+        binding = self._binding(name)
+        if binding is not None:
+            binding.delete_tag()
+            return
+
+        frame = self.current_frame()
+        if frame is not None:
+            if name not in frame.tags:
+                raise RuntimeError(f"tag {name} does not exist")
+            del frame.tags[name]
+            return
+
+        if name not in self.tags:
+            raise RuntimeError(f"tag {name} does not exist")
+        del self.tags[name]
+
+    def bind_branch(self, name: str) -> RefBinding:
+        binding = self._binding(name)
+        if binding is not None:
+            if not binding.is_branch():
+                raise RuntimeError(f"Branch {name} does not exist")
+            return binding
+
+        frame = self.current_frame()
+        if frame is not None:
+            if name not in frame.branches:
+                raise RuntimeError(f"Branch {name} does not exist")
+            return BranchBinding(frame.branches, name)
+
+        if name not in self.branches:
+            raise RuntimeError(f"Branch {name} does not exist")
+        return BranchBinding(self.branches, name)
+
+    def bind_tag(self, name: str) -> RefBinding:
+        binding = self._binding(name)
+        if binding is not None:
+            if not binding.is_tag():
+                raise RuntimeError(f"tag {name} does not exist")
+            return binding
+
+        frame = self.current_frame()
+        if frame is not None:
+            if name not in frame.tags:
+                raise RuntimeError(f"tag {name} does not exist")
+            return TagBinding(frame.tags, name)
+
+        if name not in self.tags:
+            raise RuntimeError(f"tag {name} does not exist")
+        return TagBinding(self.tags, name)
+
+    def bind_name(self, name: str) -> RefBinding:
+        frame = self.current_frame()
+        if frame is not None:
+            return NameBinding(frame.branches, frame.tags, name)
+        return NameBinding(self.branches, self.tags, name)
+
+    def protect_binding(self, binding: RefBinding, name: str) -> RefBinding:
+        return ProtectedBinding(binding, name)
+
+    def protected_caller_names(self) -> set[str]:
+        names = {"main", self.HEAD}
+        frame = self.current_frame()
+        if frame is not None:
+            names.add(frame.caller_head)
+        return names
+
+    def _binding(self, name: str) -> RefBinding | None:
+        frame = self.current_frame()
+        if frame is None:
+            return None
+        return frame.bindings.get(name)

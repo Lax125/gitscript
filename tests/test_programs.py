@@ -437,18 +437,18 @@ class ProgramTests(unittest.TestCase):
             git commit -m 10
             git branch ten
             git checkout -b out root
-            git config alias.use -i amount -s text -l branch -r source -c condition -o strategy '!
-                git checkout $branch
+            git config alias.use -i amount -s text -r source -r root_ref -c condition -o strategy '!
+                git checkout main
                 git cherry-pick $source -s=$strategy
                 git merge -s $condition
-                <<<<<<< $branch
+                <<<<<<< main
                     git commit -m $amount
                     git commit -m "$text"
                 =======
                     git commit -m 0
-                >>>>>>> root
+                >>>>>>> $root_ref
             '
-            git use 7 "A" out ten > max
+            git use 7 "A" ten root > max
             git rev-list --reverse root..out
             """
         )
@@ -473,6 +473,232 @@ class ProgramTests(unittest.TestCase):
 
         self.assertEqual(output, "4\n1\n0\n")
         self.assertEqual(repo.branches["main"].value, 4)
+
+    def test_function_local_branches_shadow_globals_and_are_cleaned_up(self):
+        repo, output = run_program(
+            """
+            git branch branch1
+            git config alias.localize '!
+                git branch branch1
+                git checkout branch1
+                git commit -m 5
+            '
+            git localize
+            git checkout branch1
+            git show
+            """
+        )
+
+        self.assertEqual(output, "0\n")
+        self.assertEqual(repo.branches["branch1"].value, 0)
+        self.assertNotIn("branch1", repo.call_stack)
+
+    def test_function_main_alias_modifies_caller_branch_and_restores_head(self):
+        repo, output = run_program(
+            """
+            git checkout -b work
+            git commit -m 1
+            git config alias.bump '!
+                git checkout main
+                git commit -m 2
+                git branch temp
+                exit
+                git commit -m 99
+            '
+            git bump
+            git show work
+            """
+        )
+
+        self.assertEqual(output, "2\n")
+        self.assertEqual(repo.branches["work"].value, 2)
+        self.assertEqual(repo.HEAD, "work")
+        self.assertNotIn("temp", repo.branches)
+
+    def test_function_local_tags_shadow_globals_and_are_cleaned_up(self):
+        repo, output = run_program(
+            """
+            git commit -m 4
+            git tag saved
+            git commit -m 9
+            git config alias.local_tag '!
+                git tag saved
+                git show saved
+            '
+            git local_tag
+            git show saved
+            """
+        )
+
+        self.assertEqual(output, "9\n4\n")
+        self.assertEqual(repo.tags["saved"].value, 4)
+
+    def test_function_can_use_passed_unprotected_branch_but_not_main_or_current_branch(self):
+        repo, output = run_program(
+            """
+            git commit -m 7
+            git branch other
+            git reset HEAD~1
+            git config alias.peek -b target '!
+                git show $target
+            '
+            git peek other
+            """
+        )
+
+        self.assertEqual(output, "7\n")
+
+        with self.assertRaisesRegex(RuntimeError, "protected branch"):
+            run_program(
+                """
+                git config alias.peek -b target '!
+                    git show $target
+                '
+                git peek main
+                """
+            )
+
+        with self.assertRaisesRegex(RuntimeError, "protected branch"):
+            run_program(
+                """
+                git checkout -b work
+                git config alias.peek -b target '!
+                    git show $target
+                '
+                git peek work
+                """
+            )
+
+        with self.assertRaisesRegex(RuntimeError, "does not exist"):
+            run_program(
+                """
+                git config alias.peek -b target '!
+                    git show $target
+                '
+                git peek missing
+                """
+            )
+
+    def test_label_parameters_require_unused_names_and_create_refs_in_caller_frame(self):
+        repo, output = run_program(
+            """
+            git commit -m 4
+            git config alias.make_refs -l branch_name -l tag_name '!
+                git branch $branch_name
+                git checkout $branch_name
+                git commit -m 9
+                git tag $tag_name
+                git show $tag_name
+            '
+            git make_refs temp mark
+            git show main
+            """
+        )
+
+        self.assertEqual(output, "9\n4\n")
+        self.assertEqual(repo.branches["main"].value, 4)
+        self.assertEqual(repo.branches["temp"].value, 9)
+        self.assertEqual(repo.tags["mark"].value, 9)
+
+        with self.assertRaisesRegex(RuntimeError, "already refers"):
+            run_program(
+                """
+                git branch taken
+                git config alias.make -l name '!
+                    git branch $name
+                '
+                git make taken
+                """
+            )
+
+    def test_label_parameters_create_refs_in_outer_function_frame(self):
+        repo, output = run_program(
+            """
+            git config alias.inner -l label '!
+                git branch $label
+                git checkout $label
+                git commit -m 3
+            '
+            git config alias.outer '!
+                git inner made
+                git checkout made
+                git show
+            '
+            git outer
+            """
+        )
+
+        self.assertEqual(output, "3\n")
+        self.assertNotIn("made", repo.branches)
+
+    def test_protected_branch_parameters_can_target_main_and_current_but_not_be_deleted(self):
+        repo, output = run_program(
+            """
+            git checkout -b work
+            git commit -m 1
+            git config alias.bump -p target '!
+                git checkout $target
+                git commit -m 2
+            '
+            git bump work
+            git show work
+            git bump main
+            git show main
+            """
+        )
+
+        self.assertEqual(output, "2\n2\n")
+        self.assertEqual(repo.branches["work"].value, 2)
+        self.assertEqual(repo.branches["main"].value, 2)
+        self.assertEqual(repo.HEAD, "work")
+
+        with self.assertRaisesRegex(RuntimeError, "protected branch"):
+            run_program(
+                """
+                git checkout -b work
+                git config alias.bad -p target '!
+                    git branch -d $target
+                '
+                git bad work
+                """
+            )
+
+        with self.assertRaisesRegex(RuntimeError, "does not exist"):
+            run_program(
+                """
+                git config alias.bump -p target '!
+                    git checkout $target
+                '
+                git bump missing
+                """
+            )
+
+    def test_tag_parameters_require_existing_tags(self):
+        repo, output = run_program(
+            """
+            git commit -m 6
+            git tag saved
+            git commit -m 9
+            git config alias.peek -t mark '!
+                git show $mark
+            '
+            git peek saved
+            """
+        )
+
+        self.assertEqual(output, "6\n")
+        self.assertEqual(repo.tags["saved"].value, 6)
+
+        with self.assertRaisesRegex(RuntimeError, "tag saved does not exist"):
+            run_program(
+                """
+                git branch saved
+                git config alias.peek -t mark '!
+                    git show $mark
+                '
+                git peek saved
+                """
+            )
 
     def test_global_exit_stops_execution(self):
         repo, output = run_program(

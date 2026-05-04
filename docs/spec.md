@@ -485,7 +485,7 @@ Alias expansion happens while parsing the command being executed, using aliases 
 ### Functions
 
 ```gitscript
-git config alias.function_name [-i <name>]... [-s <name>]... [-l <name>]... [-r <name>]... [-c <name>]... [-o <name>]... '![statement]...'
+git config alias.function_name [-i <name>]... [-s <name>]... [-l <name>]... [-b <name>]... [-p <name>]... [-t <name>]... [-r <name>]... [-c <name>]... [-o <name>]... '![statement]...'
 ```
 
 Defines a function. A function body is an ordered list of zero or more statements. When `git function_name` is executed, GitScript executes those statements in order.
@@ -528,7 +528,7 @@ Function calls provide arguments positionally:
 git foo 3 "hello"
 ```
 
-Each call creates one call-stack frame containing the parameter values for that function invocation. Parameter references resolve against the current frame. When the function returns, that frame is removed.
+Each call creates one call-stack frame containing the parameter values, local branches, and local tags for that function invocation. Parameter references resolve against the current frame. When the function returns, that frame is removed.
 
 Parameters are referenced with `$<name>`:
 
@@ -543,7 +543,10 @@ Parameter types:
 
 * `-i <name>`: integer literal. `true` and `false` are accepted as integer literals with values `1` and `0`
 * `-s <name>`: string literal
-* `-l <name>`: tag or branch name. The name is not checked for existence when the function is called
+* `-l <name>`: label. The argument must be a valid name that does not currently refer to an existing branch or tag in the caller's frame. This is useful for functions that create branches or tags in the caller's frame.
+* `-b <name>`: existing unprotected branch. The argument must name a branch that exists when the function is called. `main` and the caller's current branch cannot be passed as `-b`.
+* `-p <name>`: existing protected branch. The argument must name a branch that exists when the function is called. `main` and the caller's current branch can be passed as `-p`, and the branch cannot be deleted through the parameter inside the function.
+* `-t <name>`: existing tag. The argument must name a tag that exists when the function is called.
 * `-r <name>`: commit reference
 * `-c <name>`: merge-conflict condition
 * `-o <name>`: cherry-pick integer operator
@@ -565,6 +568,71 @@ git cherry-pick main -s=max
 ```
 
 Calling a function with the wrong number of positional arguments is a runtime error, unless missing arguments have defaults.
+
+### Branch and Tag Scope
+
+Branches and tags are scoped to the current execution frame.
+
+At global scope, branches and tags are global. Inside a function call, branch and tag names refer only to refs in that function's current call frame, plus any refs explicitly passed into the function.
+
+`main` is a protected branch name.
+
+* At global scope, `main` is the initial branch and cannot be deleted.
+* Inside a function call, `main` is a protected alias for the caller's previous branch, similar to `self` in Python methods.
+* Function-local code can `checkout`, `commit`, `reset`, and otherwise operate on `main` to modify the caller's branch intentionally.
+* A function cannot create, delete, or shadow `main`.
+
+Refs created inside a function shadow, but do not overwrite or modify, global refs with the same name.
+
+When a function returns normally or exits early with `exit`, all branches and tags created in that function call are removed automatically.
+
+This means a function cannot access an arbitrary global branch or tag by naming it directly:
+
+```gitscript
+git branch branch1
+
+git config alias.example '!
+  git checkout branch1  # looks for local branch1, not global branch1
+'
+```
+
+The same rule applies to tags:
+
+```gitscript
+git tag saved
+
+git config alias.example '!
+  git show saved  # looks for local saved, not global saved
+'
+```
+
+To let a function use a branch or tag from its caller other than the caller's current branch, pass the name as a parameter:
+
+```gitscript
+git branch branch1
+
+git config alias.example -b target '!
+  git checkout $target
+'
+
+git example branch1
+```
+
+The `-b` parameter binds an existing unprotected branch from the caller's frame. Inside the function, `$target` refers to that bound caller branch, even if a local ref with the same literal name would otherwise be inaccessible.
+
+`main` and the caller's current branch name cannot be passed to `-b` parameters, whether positionally or by named argument. The caller's current branch is already available inside the function as `main`.
+
+Use `-p` for branch parameters that are allowed to refer to protected branches. A `-p` parameter can refer to `main` or the caller's current branch, and function-local code can `checkout`, `commit`, and `reset` through that parameter. It cannot delete the branch through that parameter.
+
+Use `-t` to bind an existing tag from the caller's frame.
+
+Use `-l` when a function needs a new label for a branch or tag it will create in the caller's frame. A `-l` argument is checked when the function is called and is valid only if it does not currently refer to any branch or tag in the caller's frame. Inside the function, creating `git branch $label` or `git tag $label` creates that ref in the caller's frame, not in the callee's temporary frame. This is similar in spirit to Python's `global`: the name is still introduced by the callee's code, but it belongs to the enclosing namespace.
+
+Commit-ref parameters (`-r`) are evaluated in the caller's frame when the function is called, then behave as commit references inside the callee. This lets a caller pass `branch1~2` without exposing the caller's `branch1` name directly.
+
+Nested function calls create nested frames. A branch or tag created in an outer function is not visible by name inside an inner function unless it is passed as a parameter to the inner function. In each nested call, `main` refers to that call's caller branch.
+
+When a function returns, GitScript restores the caller's previous `HEAD`. Because `main` is protected inside the function, this restoration is valid even if the function deleted other local branches.
 
 ### Early Exit
 
@@ -588,6 +656,8 @@ git foo
 git foo 3
 git foo 3 "done"
 ```
+
+Defaults for `-l`, `-b`, `-p`, and `-t` parameters are checked when the function is called, the same as explicit arguments.
 
 Named arguments use long option syntax derived from the parameter name:
 

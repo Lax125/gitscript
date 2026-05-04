@@ -9,7 +9,7 @@ from gitscript.refs import Ref, resolve, HeadRef
 from gitscript.commands import commit, commit_string, branch, checkout, reset, show, log, tag, cherry_pick, \
     rebase, delete_branch, delete_tag, cherry_pick_range, revert, revert_range, log_range, rev_list, rev_list_range
 from gitscript.operators import Condition, Operator
-from gitscript.repo import Repo
+from gitscript.repo import CommitBinding, Repo, RefBinding
 
 
 class Statement:
@@ -47,6 +47,12 @@ class Parameter:
 class FunctionDefinition:
     parameters: list[Parameter]
     body: str
+
+
+@dataclass
+class BoundArguments:
+    values: dict[str, str]
+    bindings: dict[str, RefBinding]
 
 class Branch(Statement):
     def __init__(self, branch_name: str, ref: Ref = HeadRef()):
@@ -131,14 +137,14 @@ class AliasCall(Statement):
             return
 
         if isinstance(definition, FunctionDefinition):
-            frame = _bind_function_args(definition, self.args)
-            repo.call_stack.append(frame)
+            bound = _bind_function_args(repo, definition, self.args)
+            repo.push_function_frame(bound.bindings, bound.values)
             try:
-                _run_source(repo, _substitute_parameters(definition.body, frame))
+                _run_source(repo, _substitute_parameters(definition.body, bound.values))
             except ExitSignal:
                 pass
             finally:
-                repo.call_stack.pop()
+                repo.pop_function_frame()
             return
 
         raise RuntimeError(f"Unknown alias definition: {definition.__class__.__name__}")
@@ -392,8 +398,9 @@ def _quote_arg(arg: str) -> str:
     return shlex.quote(arg)
 
 
-def _bind_function_args(definition: FunctionDefinition, args: list[str]) -> dict[str, str]:
+def _bind_function_args(repo: Repo, definition: FunctionDefinition, args: list[str]) -> BoundArguments:
     values: dict[str, str] = {}
+    bindings: dict[str, RefBinding] = {}
     positional: list[str] = []
     named: dict[str, str] = {}
     i = 0
@@ -425,7 +432,7 @@ def _bind_function_args(definition: FunctionDefinition, args: list[str]) -> dict
         raise RuntimeError("Function called with too many positional arguments")
 
     for parameter, value in zip(parameters, positional):
-        values[parameter.name] = _validate_parameter_value(parameter, value)
+        _bind_parameter_value(repo, parameter, value, values, bindings)
 
     for name, value in named.items():
         parameter = next((p for p in parameters if p.name == name), None)
@@ -433,28 +440,70 @@ def _bind_function_args(definition: FunctionDefinition, args: list[str]) -> dict
             raise RuntimeError(f"Unknown parameter: {name}")
         if name in values:
             raise RuntimeError(f"Parameter {name} supplied more than once")
-        values[name] = _validate_parameter_value(parameter, value)
+        _bind_parameter_value(repo, parameter, value, values, bindings)
 
     for parameter in parameters:
         if parameter.name in values:
             continue
         if parameter.default is None:
             raise RuntimeError(f"Missing function argument: {parameter.name}")
-        values[parameter.name] = parameter.default
+        _bind_parameter_value(repo, parameter, parameter.default, values, bindings)
 
-    return values
+    return BoundArguments(values, bindings)
 
 
-def _validate_parameter_value(parameter: Parameter, value: str) -> str:
+def _bind_parameter_value(
+        repo: Repo,
+        parameter: Parameter,
+        value: str,
+        values: dict[str, str],
+        bindings: dict[str, RefBinding],
+) -> None:
+    value_text = _validate_parameter_value(repo, parameter, value)
+    values[parameter.name] = value_text
+    if parameter.kind == "-l":
+        bindings[value_text] = repo.bind_name(value)
+    elif parameter.kind == "-b":
+        bindings[value_text] = repo.bind_branch(value)
+    elif parameter.kind == "-p":
+        bindings[value_text] = repo.protect_binding(repo.bind_branch(value), value)
+    elif parameter.kind == "-t":
+        bindings[value_text] = repo.bind_tag(value)
+    elif parameter.kind == "-r":
+        from gitscript.parser import _parse_ref
+
+        bindings[value_text] = CommitBinding(_parse_ref(value, 0).resolve(repo))
+
+
+def _validate_parameter_value(repo: Repo, parameter: Parameter, value: str) -> str:
     if parameter.kind == "-i":
         return str(_parse_integer_literal(value))
     if parameter.kind == "-s":
         return value
     if parameter.kind == "-l":
         _validate_name(value, "parameter")
-        return value
+        if repo.has(value):
+            raise RuntimeError(f"Label {value} already refers to a branch or tag")
+        return _parameter_binding_name(parameter.name)
+    if parameter.kind == "-b":
+        _validate_name(value, "parameter")
+        if value in repo.protected_caller_names():
+            raise RuntimeError(f"Cannot pass protected branch {value} to -b parameter")
+        if not repo.has_branch(value):
+            raise RuntimeError(f"Branch {value} does not exist")
+        return _parameter_binding_name(parameter.name)
+    if parameter.kind == "-p":
+        _validate_name(value, "parameter")
+        if not repo.has_branch(value):
+            raise RuntimeError(f"Branch {value} does not exist")
+        return _parameter_binding_name(parameter.name)
+    if parameter.kind == "-t":
+        _validate_name(value, "parameter")
+        if not repo.has_tag(value):
+            raise RuntimeError(f"tag {value} does not exist")
+        return _parameter_binding_name(parameter.name)
     if parameter.kind == "-r":
-        return value
+        return _parameter_binding_name(parameter.name)
     if parameter.kind == "-c":
         if not any(condition.value == value for condition in Condition):
             raise RuntimeError(f"Unknown merge condition: {value}")
@@ -464,6 +513,10 @@ def _validate_parameter_value(parameter: Parameter, value: str) -> str:
             raise RuntimeError(f"Unknown strategy: {value}")
         return value
     raise RuntimeError(f"Unknown parameter type: {parameter.kind}")
+
+
+def _parameter_binding_name(name: str) -> str:
+    return f"_param/{name}"
 
 
 def _parse_integer_literal(value: str) -> int:

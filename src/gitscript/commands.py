@@ -9,17 +9,17 @@ from gitscript.repo import Repo
 
 
 def commit(repo: Repo, value: int, amend=False, operation: str = "git commit"):
-    head = repo.branches[repo.HEAD]
+    head = repo.current_commit()
 
     parent = head.parent if amend else head
 
     new = _create_commit(repo, value, parent, operation)
 
     # move branch
-    repo.branches[repo.HEAD] = new
+    repo.set_current_commit(new)
 
 def commit_string(repo: Repo, value: str):
-    head = repo.branches[repo.HEAD]
+    head = repo.current_commit()
 
     parent = head
     new = parent
@@ -29,16 +29,16 @@ def commit_string(repo: Repo, value: str):
         parent = new
 
     # move branch
-    repo.branches[repo.HEAD] = new
+    repo.set_current_commit(new)
 
 def cherry_pick(repo: Repo, ref: Ref, op: Operator = Operator.THEIRS):
     c = ref.resolve(repo)
-    commit(repo, _apply_operator(repo.branches[repo.HEAD].value, c.value, op), operation="git cherry-pick")
+    commit(repo, _apply_operator(repo.current_commit().value, c.value, op), operation="git cherry-pick")
 
 def cherry_pick_range(repo: Repo, commit_range: CommitRange, op: Operator = Operator.THEIRS):
     # reverse resolved range to get back chronological ordering
     for c in commit_range.resolve(repo)[::-1]:
-        commit(repo, _apply_operator(repo.branches[repo.HEAD].value, c.value, op), operation="git cherry-pick range")
+        commit(repo, _apply_operator(repo.current_commit().value, c.value, op), operation="git cherry-pick range")
 
 def revert(repo: Repo, ref: Ref):
     c = ref.resolve(repo)
@@ -49,39 +49,26 @@ def revert_range(repo: Repo, commit_range: CommitRange):
         commit(repo, -c.value, operation="git revert range")
 
 def reset(repo, ref):
-    repo.branches[repo.HEAD] = resolve(ref, repo)
+    repo.set_current_commit(resolve(ref, repo))
 
 def branch(repo: Repo, name: str, ref: Ref = HeadRef()):
-    if repo.has(name):
-        raise RuntimeError(f"Branch or tag {name} already exists")
     c = resolve(ref, repo)
-    repo.branches[name] = c
+    repo.create_branch(name, c)
 
 def delete_branch(repo: Repo, name: str):
-    if repo.HEAD == name:
-        raise RuntimeError(f"Cannot delete current branch {name}")
-    elif name not in repo.branches:
-        raise RuntimeError(f"Branch {name} does not exist")
-    del repo.branches[name]
+    repo.delete_branch(name)
 
 def checkout(repo: Repo, name: str):
-    if name not in repo.branches:
-        raise RuntimeError(f"Branch {name} does not exist")
-    repo.HEAD = name
+    repo.checkout(name)
 
 def tag(repo: Repo, name: str):
-    if repo.has(name):
-        raise RuntimeError(f"Branch or tag {name} already exists")
-    c = repo.branches[repo.HEAD]
-    repo.tags[name] = c
+    repo.create_tag(name, repo.current_commit())
 
 def delete_tag(repo: Repo, name: str):
-    if name not in repo.tags:
-        raise RuntimeError(f"tag {name} does not exist")
-    del repo.tags[name]
+    repo.delete_tag(name)
 
 def rebase(repo, ref):
-    head = repo.branches[repo.HEAD]
+    head = repo.current_commit()
     target = resolve(ref, repo)
 
     # find ancestors of target
@@ -105,7 +92,7 @@ def rebase(repo, ref):
         base = _create_commit(repo, old.value, base, "git rebase")
 
     # update branch
-    repo.branches[repo.HEAD] = base
+    repo.set_current_commit(base)
 
 def show(repo: Repo, ref: Ref):
     c = resolve(ref, repo)

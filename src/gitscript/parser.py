@@ -338,7 +338,7 @@ def _parse_alias_config(args: list[str], line_number: int) -> DefineAlias | Defi
     i = 1
     while i < len(args) - 1:
         kind = args[i]
-        if kind not in {"-i", "-s", "-l", "-r", "-c", "-o"}:
+        if kind not in {"-i", "-s", "-l", "-b", "-p", "-t", "-r", "-c", "-o"}:
             raise ParseError(f"Line {line_number}: Unknown function parameter type: {kind}")
         parameter_text = args[i + 1]
         parameter_name, default = _parse_parameter(parameter_text, kind, line_number)
@@ -374,7 +374,7 @@ def _validate_parameter_default(kind: str, value: str, line_number: int) -> str:
         return str(_parse_integer_literal(value, line_number, "integer parameter default"))
     if kind == "-s":
         return value
-    if kind == "-l":
+    if kind in {"-l", "-b", "-p", "-t"}:
         return _parse_name(value, line_number, "parameter default")
     if kind == "-r":
         _parse_ref(value, line_number)

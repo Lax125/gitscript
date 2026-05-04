@@ -18,78 +18,78 @@ git branch current_pos root
 git branch best_pos root
 git branch have_candidate root
 git branch comparison root
-git branch index root
-git branch left_start root
-git branch left_end root
-git branch right_start root
-git branch right_end root
-git branch left_cursor root
-git branch right_cursor root
 git branch selected_start root
 git branch selected_end root
 
-git config alias.bounds -r position -l start_depth -l end_depth '!
+git config alias.bounds -r position -b start_depth -b end_depth -r word_count_ref -r fences_ref -r one_ref '!
+    git branch index $word_count_ref
     git checkout index
-    git reset word_count
     git cherry-pick $position -s=-
 
     git checkout $start_depth
-    git reset fences~index
+    git reset $fences_ref~index
 
     git checkout index
-    git cherry-pick one -s=-
+    git cherry-pick $one_ref -s=-
 
     git checkout $end_depth
-    git reset fences~index
-    git cherry-pick one -s=-
+    git reset $fences_ref~index
+    git cherry-pick $one_ref -s=-
 '
 
-git config alias.compare_words -r left_pos -r right_pos '!
-    git bounds $left_pos left_start left_end
-    git bounds $right_pos right_start right_end
+git config alias.compare_words -r left_pos -r right_pos -b comparison_ref -r root_ref -r words_ref -r word_count_ref -r fences_ref -r one_ref '!
+    git branch left_start $root_ref
+    git branch left_end $root_ref
+    git branch right_start $root_ref
+    git branch right_end $root_ref
+    git branch left_cursor $root_ref
+    git branch right_cursor $root_ref
+
+    git bounds $left_pos left_start left_end $word_count_ref $fences_ref $one_ref
+    git bounds $right_pos right_start right_end $word_count_ref $fences_ref $one_ref
 
     git checkout left_cursor
     git reset left_start
     git checkout right_cursor
     git reset right_start
-    git checkout comparison
-    git reset root
+    git checkout $comparison_ref
+    git reset $root_ref
 
     git merge -s is compare
-    <<<<<<< words~left_cursor
-        git checkout comparison
-        git reset root
+    <<<<<<< $words_ref~left_cursor
+        git checkout $comparison_ref
+        git reset $root_ref
         git commit -m 1
         git merge --abort compare
     =======
         git merge -s is
-        <<<<<<< words~right_cursor
-            git checkout comparison
-            git reset root
+        <<<<<<< $words_ref~right_cursor
+            git checkout $comparison_ref
+            git reset $root_ref
             git merge --abort compare
         =======
             git merge -s <
-            <<<<<<< words~left_cursor
-                git checkout comparison
-                git reset root
+            <<<<<<< $words_ref~left_cursor
+                git checkout $comparison_ref
+                git reset $root_ref
                 git commit -m 1
                 git merge --abort compare
             =======
                 git merge -s >
-                <<<<<<< words~left_cursor
-                    git checkout comparison
-                    git reset root
+                <<<<<<< $words_ref~left_cursor
+                    git checkout $comparison_ref
+                    git reset $root_ref
                     git merge --abort compare
                 =======
                     git checkout left_cursor
-                    git cherry-pick one -s=+
+                    git cherry-pick $one_ref -s=+
                     git checkout right_cursor
-                    git cherry-pick one -s=+
+                    git cherry-pick $one_ref -s=+
                     git merge --continue compare
-                >>>>>>> words~right_cursor
-            >>>>>>> words~right_cursor
-        >>>>>>> words~right_end
-    >>>>>>> words~left_end
+                >>>>>>> $words_ref~right_cursor
+            >>>>>>> $words_ref~right_cursor
+        >>>>>>> $words_ref~right_end
+    >>>>>>> $words_ref~left_end
 '
 
 git checkout word
@@ -171,7 +171,7 @@ git merge -s > sort
             git reset root
             git commit -m 1
         =======
-            git compare_words current_pos best_pos
+            git compare_words current_pos best_pos comparison root words word_count fences one
             git merge -s >
             <<<<<<< comparison
                 git checkout best_pos
@@ -186,7 +186,7 @@ git merge -s > sort
         git merge --continue scan
     >>>>>>> root
 
-    git bounds best_pos selected_start selected_end
+    git bounds best_pos selected_start selected_end word_count fences one
     git log words~selected_end..words~selected_start
 
     git checkout new_remaining

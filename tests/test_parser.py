@@ -161,10 +161,10 @@ class ParserTests(unittest.TestCase):
             """
             git commit -m true && git commit -m false
             git config alias.cp 'cherry-pick'
-            git config alias.pick -r source -o strategy '!
+            git config alias.pick -l label -b target -p owner -t mark -r source -o strategy '!
                 git cherry-pick $source -s=$strategy && exit
             '
-            git later main max
+            git later new-label other main saved main max
             exit
             """
         )
@@ -178,10 +178,20 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(statements[2].name, "cp")
         self.assertEqual(statements[2].fragment, "cherry-pick")
         self.assertIsInstance(statements[3], DefineFunction)
-        self.assertEqual([parameter.name for parameter in statements[3].parameters], ["source", "strategy"])
+        self.assertEqual(
+            [(parameter.kind, parameter.name) for parameter in statements[3].parameters],
+            [
+                ("-l", "label"),
+                ("-b", "target"),
+                ("-p", "owner"),
+                ("-t", "mark"),
+                ("-r", "source"),
+                ("-o", "strategy"),
+            ],
+        )
         self.assertIsInstance(statements[4], AliasCall)
         self.assertEqual(statements[4].name, "later")
-        self.assertEqual(statements[4].args, ["main", "max"])
+        self.assertEqual(statements[4].args, ["new-label", "other", "main", "saved", "main", "max"])
         self.assertIsInstance(statements[5], Exit)
 
     def test_parse_conflict_block(self):
