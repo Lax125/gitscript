@@ -70,22 +70,22 @@ git commit -m 3
 git checkout -b one
 git commit -m 1
 
-git checkout main
-
+git checkout counter
 git merge -s >
 <<<<<<< counter
-    git checkout counter
+    git show
     git cherry-pick one -s=-
     git merge --continue
 =======
-    git merge --abort
+    git show
 >>>>>>> main
-
-git show counter
 ```
 
 Outputs:
 
 ```text
+3
+2
+1
 0
 ```
