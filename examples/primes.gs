@@ -1,8 +1,10 @@
 git tag root
 
+# Read the inclusive upper bound.
 git checkout -b max
 git commit  # maximum number to test
 
+# Start testing candidates at 2.
 git checkout -b one root
 git commit -m 1
 git checkout -b two root
@@ -14,6 +16,7 @@ git branch walker root
 git branch remainder root
 git branch composite root
 
+# For each candidate, try dividing by every prime found so far.
 git merge -s <=
 <<<<<<< candidate
     git checkout composite
@@ -45,6 +48,7 @@ git merge -s <=
         git merge --continue
     >>>>>>> root
 
+    # Prime candidates are appended to the output list.
     git merge -s ==
     <<<<<<< composite
         git checkout primes
@@ -60,4 +64,5 @@ git merge -s <=
     git merge --abort
 >>>>>>> max
 
+# Print the primes in ascending order.
 git rev-list --reverse root..primes

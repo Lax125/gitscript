@@ -1,9 +1,11 @@
 git tag root
 
+# Read the candidate word, then keep a tag to the original input for output.
 git checkout -b input
 git commit -m "
 git tag original_input
 
+# Build a mirrored walk by reverting every character commit.
 git checkout -b reverted_input root
 git revert root..input
 
@@ -56,4 +58,6 @@ git merge -s ==
 
 git checkout message
 git cherry-pick root..original_input
+
+# The message branch now contains the original word plus the verdict.
 git log root..message

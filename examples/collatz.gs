@@ -1,8 +1,10 @@
 git tag root
 
+# Read the starting value.
 git checkout -b n
 git commit  # initial number
 
+# Constants used for parity and for the odd step.
 git checkout -b one root
 git commit -m 1
 git checkout -b two root
@@ -13,6 +15,7 @@ git commit -m 3
 git branch sequence root
 git branch parity root
 
+# Keep appending n, then transform it until it reaches one.
 git merge -s >
 <<<<<<< n
     git checkout sequence
@@ -39,6 +42,7 @@ git merge -s >
     git merge --abort
 >>>>>>> one
 
+# Include the terminal one and print the full sequence.
 git checkout sequence
 git cherry-pick n
 git rev-list --reverse root..sequence

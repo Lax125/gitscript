@@ -812,7 +812,7 @@ This happens implicitly after operations like:
 
 ## Notes
 
-* Division by zero is undefined behavior
+* Division and modulo by zero are runtime errors
 * Negative offsets are runtime errors
 * Infinite loops are easy to create (and expected)
 

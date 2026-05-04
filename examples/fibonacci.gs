@@ -1,8 +1,10 @@
 git tag root
 
+# Read the requested sequence length.
 git checkout -b remaining
 git commit  # sequence length
 
+# Constants and working branches for the pair (a, b).
 git checkout -b one root
 git commit -m 1
 
@@ -11,6 +13,7 @@ git branch a root
 git branch b one
 git branch next root
 
+# Emit a, advance (a, b) to (b, a + b), and count down.
 git merge -s >
 <<<<<<< remaining
     git checkout sequence
@@ -32,4 +35,5 @@ git merge -s >
     git merge --abort
 >>>>>>> root
 
+# Print the generated sequence from oldest to newest.
 git rev-list --reverse root..sequence

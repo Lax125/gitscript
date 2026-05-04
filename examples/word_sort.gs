@@ -1,5 +1,7 @@
 git tag root
 
+# Constants and global work branches. Each word is stored contiguously in
+# words, while fences stores the history depths that surround each word.
 git checkout -b one root
 git commit -m 1
 
@@ -21,6 +23,7 @@ git branch comparison root
 git branch selected_start root
 git branch selected_end root
 
+# Given a word position, compute the start and end depths for that word.
 git config alias.bounds -r position -b start_depth -b end_depth -r word_count_ref -r fences_ref -r one_ref '!
     git branch index $word_count_ref
     git checkout index
@@ -37,6 +40,8 @@ git config alias.bounds -r position -b start_depth -b end_depth -r word_count_re
     git cherry-pick $one_ref -s=-
 '
 
+# Compare two words lexicographically. comparison_ref is 1 if left sorts
+# before right, otherwise it is reset to root.
 git config alias.compare_words -r left_pos -r right_pos -b comparison_ref -r root_ref -r words_ref -r word_count_ref -r fences_ref -r one_ref '!
     git branch left_start $root_ref
     git branch left_end $root_ref
@@ -92,6 +97,7 @@ git config alias.compare_words -r left_pos -r right_pos -b comparison_ref -r roo
     >>>>>>> $words_ref~left_end
 '
 
+# Read words one at a time; an empty line ends input.
 git checkout word
 git commit -m "
 
@@ -112,6 +118,7 @@ git merge -s is read
 git checkout cursor
 git reset words
 
+# Build the list of word positions and the fencepost depths used for slicing.
 git merge -s is build
 <<<<<<< cursor
     git checkout fences
@@ -147,6 +154,8 @@ git merge -s is build
     git merge --continue build
 >>>>>>> root
 
+# Selection-sort the remaining word positions. Each pass logs the smallest
+# remaining word and rebuilds the remaining list without that position.
 git merge -s > sort
 <<<<<<< remaining_count
     git checkout walker
@@ -156,6 +165,7 @@ git merge -s > sort
     git checkout best_pos
     git reset root
 
+    # Scan all remaining positions to find the next best word.
     git merge -s is scan
     <<<<<<< walker
         git merge --abort scan
@@ -194,6 +204,7 @@ git merge -s > sort
     git checkout walker
     git reset remaining
 
+    # Rebuild remaining without the selected position.
     git merge -s is rebuild
     <<<<<<< walker
         git merge --abort rebuild
