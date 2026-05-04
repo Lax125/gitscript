@@ -36,6 +36,21 @@ class ExampleTests(unittest.TestCase):
         self.assertEqual(run_example("reverse_words.gs", ["hello world"]), "world hello\n")
         self.assertEqual(run_example("reverse_words.gs", ["one two three"]), "three two one\n")
 
+    def test_word_sort(self):
+        self.assertEqual(run_example("word_sort.gs", [""]), "")
+        self.assertEqual(
+            run_example("word_sort.gs", ["banana", "apple", "cherry", ""]),
+            "apple\nbanana\ncherry\n",
+        )
+        self.assertEqual(
+            run_example("word_sort.gs", ["ABC", "ABCD", "AB", ""]),
+            "AB\nABC\nABCD\n",
+        )
+        self.assertEqual(
+            run_example("word_sort.gs", ["dog", "cat", "cat", "ant", ""]),
+            "ant\ncat\ncat\ndog\n",
+        )
+
 
 if __name__ == '__main__':
     unittest.main()
