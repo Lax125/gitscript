@@ -171,6 +171,10 @@ def _apply_operator(ours: int, theirs: int, op: Operator) -> int:
         return ours
     if op == Operator.THEIRS:
         return theirs
+    if op == Operator.MIN:
+        return min(ours, theirs)
+    if op == Operator.MAX:
+        return max(ours, theirs)
     if op == Operator.ADD:
         return ours + theirs
     if op == Operator.SUBTRACT:

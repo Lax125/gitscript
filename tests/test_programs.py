@@ -135,10 +135,17 @@ class ProgramTests(unittest.TestCase):
             git reset HEAD~1
             git cherry-pick ten -s=ours
             git show
+            git reset HEAD~1
+            git cherry-pick ten -s=min
+            git show
+            git reset HEAD~1
+            git cherry-pick ten -s=max
+            git show
+            git reset HEAD~1
             """
         )
 
-        self.assertEqual(output, "13\n-7\n30\n0\n3\n0\n1\n0\n1\n0\n1\n10\n3\n")
+        self.assertEqual(output, "13\n-7\n30\n0\n3\n0\n1\n0\n1\n0\n1\n10\n3\n3\n10\n")
         self.assertEqual(repo.branches["main"].value, 3)
 
     def test_commit_refs_static_dynamic_parenthesized_and_missing_ancestor(self):
@@ -193,12 +200,15 @@ class ProgramTests(unittest.TestCase):
             git reset HEAD~2
             git cherry-pick HEAD~5..HEAD~3 -s +
             git rev-list -n 2
+            git reset HEAD~2
+            git cherry-pick HEAD~5..HEAD~3 -s max
+            git rev-list -n 2
             git revert HEAD~7..HEAD~5
             git rev-list -n 2
             """
         )
 
-        self.assertEqual(output, "2\n-2\n2\n1\n1\n-1\n-1\n-2\n")
+        self.assertEqual(output, "2\n-2\n2\n1\n1\n-1\n2\n1\n-1\n-2\n")
         self.assertEqual(repo.branches["main"].value, -1)
 
     def test_rebase_replays_current_branch_onto_target(self):

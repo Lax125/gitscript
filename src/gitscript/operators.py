@@ -4,6 +4,8 @@ from enum import Enum
 class Operator(Enum):
     OURS = "ours"
     THEIRS = "theirs"
+    MIN = "min"
+    MAX = "max"
     ADD = "+"
     SUBTRACT = "-"
     MULTIPLY = "*"

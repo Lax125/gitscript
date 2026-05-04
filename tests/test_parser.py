@@ -103,6 +103,8 @@ class ParserTests(unittest.TestCase):
             """
             git cherry-pick main -s -
             git cherry-pick main -s=-
+            git cherry-pick main -s min
+            git cherry-pick main -s=max
             """
         )
 
@@ -110,6 +112,10 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(statements[0].op, Operator.SUBTRACT)
         self.assertIsInstance(statements[1], CherryPick)
         self.assertEqual(statements[1].op, Operator.SUBTRACT)
+        self.assertIsInstance(statements[2], CherryPick)
+        self.assertEqual(statements[2].op, Operator.MIN)
+        self.assertIsInstance(statements[3], CherryPick)
+        self.assertEqual(statements[3].op, Operator.MAX)
 
     def test_parse_config(self):
         statements = parse(

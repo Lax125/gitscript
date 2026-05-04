@@ -249,6 +249,8 @@ Example: cherry-picking values `[1, 2, 3]` onto a current value of `5` with `-s=
 
 * `theirs` (default): commit `theirs`
 * `ours`: commit `ours`
+* `min`: commit the lesser of `ours` and `theirs`
+* `max`: commit the greater of `ours` and `theirs`
 
 #### Arithmetic
 
