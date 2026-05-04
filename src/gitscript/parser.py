@@ -31,6 +31,9 @@ from gitscript.statements import (
 )
 
 
+_NAME_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_/")
+
+
 class ParseError(ValueError):
     pass
 
@@ -199,9 +202,12 @@ def _parse_statement(line: _Line) -> Statement | _MergeStart:
         return _parse_branch(args, line.number)
     if command == "checkout":
         if len(args) in {2, 3} and args[0] == "-b":
-            return Checkout(args[1], _parse_ref(args[2], line.number) if len(args) == 3 else HeadRef())
+            return Checkout(
+                _parse_name(args[1], line.number, "branch"),
+                _parse_ref(args[2], line.number) if len(args) == 3 else HeadRef(),
+            )
         _expect_count(args, 1, line.number, "git checkout")
-        return Checkout(args[0])
+        return Checkout(_parse_name(args[0], line.number, "branch"))
     if command == "reset":
         _expect_count(args, 1, line.number, "git reset")
         return Reset(_parse_ref(args[0], line.number))
@@ -241,20 +247,20 @@ def _parse_branch(args: list[str], line_number: int) -> Statement:
     if args and args[0] == "-d":
         if len(args) < 2:
             raise ParseError(f"Line {line_number}: git branch -d needs at least one branch name")
-        return DeleteBranches(args[1:])
+        return DeleteBranches([_parse_name(name, line_number, "branch") for name in args[1:]])
 
     _expect_count(args, (1, 2), line_number, "git branch")
-    return Branch(args[0], _parse_ref(args[1], line_number) if len(args) == 2 else HeadRef())
+    return Branch(_parse_name(args[0], line_number, "branch"), _parse_ref(args[1], line_number) if len(args) == 2 else HeadRef())
 
 
 def _parse_tag(args: list[str], line_number: int) -> Statement:
     if args and args[0] == "-d":
         if len(args) < 2:
             raise ParseError(f"Line {line_number}: git tag -d needs at least one tag name")
-        return DeleteTags(args[1:])
+        return DeleteTags([_parse_name(name, line_number, "tag") for name in args[1:]])
 
     _expect_count(args, 1, line_number, "git tag")
-    return Tag(args[0])
+    return Tag(_parse_name(args[0], line_number, "tag"))
 
 
 def _parse_commit(args: list[str], line_number: int, message_is_quoted: bool) -> Statement:
@@ -378,6 +384,18 @@ def _parse_condition(text: str, line_number: int) -> Condition:
     raise ParseError(f"Line {line_number}: Unknown merge condition: {text}")
 
 
+def _parse_name(text: str, line_number: int, kind: str) -> str:
+    if text == "HEAD":
+        raise ParseError(f"Line {line_number}: {kind} name cannot be HEAD")
+    if text.startswith("-"):
+        raise ParseError(f"Line {line_number}: {kind} name cannot start with -")
+    if any(char not in _NAME_CHARS for char in text):
+        raise ParseError(
+            f"Line {line_number}: {kind} name may contain only A-Z, a-z, 0-9, -, _, and /"
+        )
+    return text
+
+
 def _parse_range_or_ref(text: str, line_number: int) -> Ref | CommitRange:
     if ".." in text:
         parts = text.split("..")
@@ -459,7 +477,7 @@ def _parse_ref_atom(tokens: "_RefTokens") -> Ref:
         return ref
     if token in {"~", ")"}:
         raise ParseError(f"Line {tokens.line_number}: Expected commit reference before {token}")
-    return BranchRef(token)
+    return BranchRef(_parse_name(token, tokens.line_number, "ref"))
 
 
 class _RefTokens:

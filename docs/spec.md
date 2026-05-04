@@ -33,6 +33,20 @@ HEAD~(foo~1)
 
 ---
 
+## Branch and Tag Names
+
+Branch and tag names are intentionally simpler than real Git refs.
+
+Valid names:
+
+* may contain only `A-Z`, `a-z`, `0-9`, `-`, `_`, and `/`
+* may not start with `-`
+* may not be `HEAD`, because `HEAD` always means the current branch tip
+
+Other Git words are ordinary names. For example, `git`, `commit`, and `merge` are valid branch or tag names.
+
+---
+
 ## Commit Ranges
 
 ```text

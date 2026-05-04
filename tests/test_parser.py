@@ -191,6 +191,41 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(statements[2].branch_name, "feature")
         self.assertIsInstance(statements[2].create_at, ConstantOffsetRef)
 
+    def test_branch_and_tag_names_allow_restricted_character_set_and_keywords(self):
+        statements = parse(
+            """
+            git branch feature/path-1_ok
+            git checkout -b git
+            git branch commit
+            git tag merge
+            git branch -d feature/path-1_ok git commit
+            git tag -d merge
+            """
+        )
+
+        self.assertEqual(statements[0].branch_name, "feature/path-1_ok")
+        self.assertEqual(statements[1].branch_name, "git")
+        self.assertEqual(statements[2].branch_name, "commit")
+        self.assertEqual(statements[3].tag_name, "merge")
+        self.assertEqual(statements[4].branch_names, ["feature/path-1_ok", "git", "commit"])
+        self.assertEqual(statements[5].tag_names, ["merge"])
+
+    def test_branch_tag_and_ref_names_reject_invalid_names(self):
+        invalid_sources = [
+            "git branch HEAD",
+            "git tag HEAD",
+            "git checkout -b -bad",
+            "git branch bad.name",
+            "git tag bad@name",
+            "git checkout bad:name",
+            "git show bad.name",
+        ]
+
+        for source in invalid_sources:
+            with self.subTest(source=source):
+                with self.assertRaises(ParseError):
+                    parse(source)
+
     def test_parse_tag_delete(self):
         statements = parse("git tag -d v1 v2")
 
