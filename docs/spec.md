@@ -62,6 +62,17 @@ Other Git words are ordinary names. For example, `git`, `commit`, and `merge` ar
 
 ---
 
+## Integer Literals
+
+Integer literals are decimal integers.
+
+`true` and `false` are also integer literals:
+
+* `true` = `1`
+* `false` = `0`
+
+---
+
 ## Commands
 
 ### `git branch`
@@ -122,8 +133,7 @@ git checkout -b <branch-name> [<commit-ref>]
 ### `git config`
 
 ```gitscript
-git config commit.verbose true
-git config commit.verbose false
+git config commit.verbose <int>
 git config merge.verbosity 0
 git config merge.verbosity 1
 git config merge.verbosity 2
@@ -135,9 +145,9 @@ Debug logs are diagnostic output and are written separately from program output 
 
 #### `commit.verbose`
 
-Default: `false`
+Default: `0`
 
-When `commit.verbose` is `true`, GitScript logs every new commit created by any process, including:
+When `commit.verbose` is nonzero, GitScript logs every new commit created by any process, including:
 
 * `git commit`
 * string commits, once per character commit
@@ -396,6 +406,21 @@ Prints commit values (integers), one per line.
 
 ---
 
+### `exit`
+
+```gitscript
+exit
+```
+
+Exits the current execution block early.
+
+* Inside a function, `exit` returns from that function immediately
+* At global scope, `exit` ends the program immediately
+* Inside a merge-conflict block, `exit` exits the surrounding function if one is active; otherwise it exits the global program
+* `exit` is separate from `git merge --abort`, which exits only merge-conflict control structures
+
+---
+
 ## Control Flow (Merge Conflicts)
 
 GitScript uses merge conflict syntax for control flow:
@@ -419,6 +444,197 @@ Merge-conflict blocks are controlled by `git merge`.
 * `git merge --continue <label>` repeats the matching labeled block
 * `git merge --abort <label>` exits the matching labeled block
 * The conflict markers provide the two commit references compared by the condition
+
+---
+
+## Functions and Aliases
+
+Functions and shortforms are defined with `git config alias.<name>`. They share one alias namespace. Defining `alias.<name>` replaces any previous shortform or function with that name.
+
+Alias and function names use the same name rules as branches and tags.
+
+### Shortforms
+
+```gitscript
+git config alias.shortform 'statement-fragment'
+```
+
+Defines a command shortform. After this config statement runs, a command beginning with `git shortform` is parsed as though it began with `git statement-fragment`.
+
+Arguments after the shortform are appended to the substituted command.
+
+Example:
+
+```gitscript
+git config alias.cp 'cherry-pick'
+git cp main -s=max
+```
+
+The second line is parsed as:
+
+```gitscript
+git cherry-pick main -s=max
+```
+
+Alias substitution can happen multiple times. If the replacement fragment begins with another shortform or function name, that name is expanded too.
+
+No validation is performed when the alias is defined. The fragment does not need to form a valid statement at definition time. It can even define another shortform or function when it is later expanded and executed.
+
+Alias expansion happens while parsing the command being executed, using aliases that have already been executed. Aliases defined later in the program are not visible earlier in the program.
+
+### Functions
+
+```gitscript
+git config alias.function_name [-i <name>]... [-s <name>]... [-l <name>]... [-r <name>]... [-c <name>]... [-o <name>]... '![statement]...'
+```
+
+Defines a function. A function body is an ordered list of zero or more statements. When `git function_name` is executed, GitScript executes those statements in order.
+
+The body begins after the `!` and ends at the closing single quote. The first statement can appear on the same line as `git config`, and the last statement can appear on the same line as the closing quote.
+
+Example:
+
+```gitscript
+git config alias.dec '!
+  git cherry-pick one -s=-
+  git show
+'
+```
+
+This defines `git dec` as a two-statement function.
+
+The same function can also be written with the first and last statements adjacent to the quotes:
+
+```gitscript
+git config alias.dec '!git cherry-pick one -s=- && git show'
+```
+
+### Parameters
+
+Function definitions can declare named parameters before the function body:
+
+```gitscript
+git config alias.foo -i my_int -s my_string '!
+  git commit -m $my_int
+  git commit -m "$my_string"
+'
+```
+
+Parameter names use the same syntax rules as branch and tag names.
+
+Function calls provide arguments positionally:
+
+```gitscript
+git foo 3 "hello"
+```
+
+Each call creates one call-stack frame containing the parameter values for that function invocation. Parameter references resolve against the current frame. When the function returns, that frame is removed.
+
+Parameters are referenced with `$<name>`:
+
+```gitscript
+$my_int
+$my_string
+```
+
+A parameter reference can appear anywhere a value of that parameter's type is expected.
+
+Parameter types:
+
+* `-i <name>`: integer literal. `true` and `false` are accepted as integer literals with values `1` and `0`
+* `-s <name>`: string literal
+* `-l <name>`: tag or branch name. The name is not checked for existence when the function is called
+* `-r <name>`: commit reference
+* `-c <name>`: merge-conflict condition
+* `-o <name>`: cherry-pick integer operator
+
+Example:
+
+```gitscript
+git config alias.pick -r source -o strategy '!
+  git cherry-pick $source -s=$strategy
+'
+
+git pick main max
+```
+
+The call executes as though the function body contained:
+
+```gitscript
+git cherry-pick main -s=max
+```
+
+Calling a function with the wrong number of positional arguments is a runtime error, unless missing arguments have defaults.
+
+### Early Exit
+
+`exit` leaves the current function immediately. If `exit` runs at global scope, it ends the program.
+
+### Parameter Defaults and Named Arguments
+
+Defaults are declared by assigning a literal value in the parameter declaration:
+
+```gitscript
+git config alias.foo -i count=1 -s message="ok" '!
+  git commit -m $count
+  git commit -m "$message"
+'
+```
+
+Defaults make parameters optional from the right when calling positionally:
+
+```gitscript
+git foo
+git foo 3
+git foo 3 "done"
+```
+
+Named arguments use long option syntax derived from the parameter name:
+
+```gitscript
+git foo --message "done" --count 3
+```
+
+Named arguments make argument order irrelevant and can be mixed after positional arguments, as long as each parameter is supplied at most once:
+
+```gitscript
+git foo 3 --message "done"
+```
+
+This keeps function calls visually close to Git command options while avoiding a second parameter syntax.
+
+---
+
+## Statement Separators
+
+Statements are normally separated by newlines. `&&` can be used anywhere a newline could separate statements:
+
+```gitscript
+git commit -m 1 && git show
+```
+
+This is equivalent to:
+
+```gitscript
+git commit -m 1
+git show
+```
+
+A merge-conflict control structure is one statement for this purpose. The `git merge [-s <condition>] [<label>]` line and its corresponding conflict markers and blocks stay together as a single statement, even though the statement spans multiple lines.
+
+Example:
+
+```gitscript
+git merge -s > loop
+<<<<<<< counter
+    git cherry-pick one -s=- && git merge --continue loop
+=======
+    git merge --abort loop
+>>>>>>> root
+&& git show counter
+```
+
+The final `git show counter` runs after the whole merge-conflict statement finishes.
 
 ---
 

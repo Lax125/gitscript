@@ -12,9 +12,13 @@ from gitscript.statements import (
     Commit,
     CommitString,
     Config,
+    AliasCall,
     Conflict,
+    DefineAlias,
+    DefineFunction,
     DeleteBranches,
     DeleteTags,
+    Exit,
     Log,
     LogRange,
     MergeAbort,
@@ -121,7 +125,8 @@ class ParserTests(unittest.TestCase):
         statements = parse(
             """
             git config commit.verbose true
-            git config commit.verbose false
+            git config commit.verbose 0
+            git config commit.verbose 2
             git config merge.verbosity 0
             git config merge.verbosity 1
             git config merge.verbosity 2
@@ -130,11 +135,12 @@ class ParserTests(unittest.TestCase):
 
         self.assertIsInstance(statements[0], Config)
         self.assertEqual(statements[0].key, "commit.verbose")
-        self.assertTrue(statements[0].value)
-        self.assertFalse(statements[1].value)
-        self.assertEqual(statements[2].value, 0)
-        self.assertEqual(statements[3].value, 1)
-        self.assertEqual(statements[4].value, 2)
+        self.assertEqual(statements[0].value, 1)
+        self.assertEqual(statements[1].value, 0)
+        self.assertEqual(statements[2].value, 2)
+        self.assertEqual(statements[3].value, 0)
+        self.assertEqual(statements[4].value, 1)
+        self.assertEqual(statements[5].value, 2)
 
     def test_config_rejects_unknown_keys_and_values(self):
         invalid_sources = [
@@ -149,6 +155,34 @@ class ParserTests(unittest.TestCase):
             with self.subTest(source=source):
                 with self.assertRaises(ParseError):
                     parse(source)
+
+    def test_parse_statement_separator_aliases_functions_and_exit(self):
+        statements = parse(
+            """
+            git commit -m true && git commit -m false
+            git config alias.cp 'cherry-pick'
+            git config alias.pick -r source -o strategy '!
+                git cherry-pick $source -s=$strategy && exit
+            '
+            git later main max
+            exit
+            """
+        )
+
+        self.assertEqual(len(statements), 6)
+        self.assertIsInstance(statements[0], Commit)
+        self.assertEqual(statements[0].value, 1)
+        self.assertIsInstance(statements[1], Commit)
+        self.assertEqual(statements[1].value, 0)
+        self.assertIsInstance(statements[2], DefineAlias)
+        self.assertEqual(statements[2].name, "cp")
+        self.assertEqual(statements[2].fragment, "cherry-pick")
+        self.assertIsInstance(statements[3], DefineFunction)
+        self.assertEqual([parameter.name for parameter in statements[3].parameters], ["source", "strategy"])
+        self.assertIsInstance(statements[4], AliasCall)
+        self.assertEqual(statements[4].name, "later")
+        self.assertEqual(statements[4].args, ["main", "max"])
+        self.assertIsInstance(statements[5], Exit)
 
     def test_parse_conflict_block(self):
         statements = parse(
@@ -321,7 +355,7 @@ class ParserTests(unittest.TestCase):
 
     def test_parse_reports_line_number(self):
         with self.assertRaisesRegex(ParseError, "Line 3"):
-            parse("\n\ngit nope")
+            parse("\n\ngit branch bad.name")
 
     def test_repl_parse_reports_incomplete_conflict_blocks(self):
         with self.assertRaises(IncompleteInput):

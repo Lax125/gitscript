@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from gitscript.parser import parse
 from gitscript.repo import Repo
+from gitscript.statements import ExitSignal
 
 
 def run_program(source: str, inputs: list[str] | None = None) -> tuple[Repo, str]:
@@ -20,7 +21,10 @@ def run_program_with_debug(source: str, inputs: list[str] | None = None) -> tupl
     with contextlib.redirect_stdout(output):
         with contextlib.redirect_stderr(debug):
             with patch("builtins.input", side_effect=lambda: next(input_values)):
-                for statement in parse(source):
-                    statement.run(repo)
+                try:
+                    for statement in parse(source):
+                        statement.run(repo)
+                except ExitSignal:
+                    pass
 
     return repo, output.getvalue(), debug.getvalue()

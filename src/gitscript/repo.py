@@ -10,6 +10,8 @@ class Repo:
         self.HEAD = "main"
         self.commit_verbose = False
         self.merge_verbosity = 0
+        self.aliases = {}
+        self.call_stack = []
 
     def resolve(self, tag_or_branch_name: str) -> Commit:
         if tag_or_branch_name in self.tags:

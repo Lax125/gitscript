@@ -1,4 +1,7 @@
 import sys
+import re
+import shlex
+from dataclasses import dataclass
 from typing import Optional
 
 from gitscript.commit_range import CommitRange
@@ -22,6 +25,28 @@ class MergeContinueSignal(Exception):
 class MergeAbortSignal(Exception):
     def __init__(self, label: Optional[str] = None):
         self.label = label
+
+
+class ExitSignal(Exception):
+    pass
+
+
+@dataclass
+class AliasDefinition:
+    fragment: str
+
+
+@dataclass
+class Parameter:
+    kind: str
+    name: str
+    default: Optional[str] = None
+
+
+@dataclass
+class FunctionDefinition:
+    parameters: list[Parameter]
+    body: str
 
 class Branch(Statement):
     def __init__(self, branch_name: str, ref: Ref = HeadRef()):
@@ -56,17 +81,73 @@ class DeleteTags(Statement):
 
 
 class Config(Statement):
-    def __init__(self, key: str, value: bool | int):
+    def __init__(self, key: str, value: int):
         self.key = key
         self.value = value
 
     def run(self, repo: Repo):
         if self.key == "commit.verbose":
-            repo.commit_verbose = bool(self.value)
+            repo.commit_verbose = self.value != 0
         elif self.key == "merge.verbosity":
             repo.merge_verbosity = int(self.value)
         else:
             raise RuntimeError(f"Unknown config key: {self.key}")
+
+
+class DefineAlias(Statement):
+    def __init__(self, name: str, fragment: str):
+        self.name = name
+        self.fragment = fragment
+
+    def run(self, repo: Repo):
+        repo.aliases[self.name] = AliasDefinition(self.fragment)
+
+
+class DefineFunction(Statement):
+    def __init__(self, name: str, parameters: list[Parameter], body: str):
+        self.name = name
+        self.parameters = parameters
+        self.body = body
+
+    def run(self, repo: Repo):
+        repo.aliases[self.name] = FunctionDefinition(self.parameters, self.body)
+
+
+class AliasCall(Statement):
+    def __init__(self, name: str, args: list[str]):
+        self.name = name
+        self.args = args
+
+    def run(self, repo: Repo):
+        definition = repo.aliases.get(self.name)
+        if definition is None:
+            raise RuntimeError(f"Unknown git command or alias: {self.name}")
+
+        if isinstance(definition, AliasDefinition):
+            source = "git " + definition.fragment
+            if self.args:
+                source += " " + " ".join(_quote_arg(arg) for arg in self.args)
+            _run_source(repo, source)
+            return
+
+        if isinstance(definition, FunctionDefinition):
+            frame = _bind_function_args(definition, self.args)
+            repo.call_stack.append(frame)
+            try:
+                _run_source(repo, _substitute_parameters(definition.body, frame))
+            except ExitSignal:
+                pass
+            finally:
+                repo.call_stack.pop()
+            return
+
+        raise RuntimeError(f"Unknown alias definition: {definition.__class__.__name__}")
+
+
+class Exit(Statement):
+    def run(self, repo: Repo):
+        raise ExitSignal()
+
 
 class Checkout(Statement):
     def __init__(self, branch_name: str, create_at: Optional[Ref] = None):
@@ -305,3 +386,115 @@ def _log_merge_signal(repo: Repo, signal: str, target: Optional[str], handled_by
         f"[merge] {signal} target={_label_text(target)} handled_by={_label_text(handled_by)}",
         file=sys.stderr,
     )
+
+
+def _quote_arg(arg: str) -> str:
+    return shlex.quote(arg)
+
+
+def _bind_function_args(definition: FunctionDefinition, args: list[str]) -> dict[str, str]:
+    values: dict[str, str] = {}
+    positional: list[str] = []
+    named: dict[str, str] = {}
+    i = 0
+
+    while i < len(args):
+        arg = args[i]
+        if arg.startswith("--"):
+            name_value = arg[2:]
+            if not name_value:
+                raise RuntimeError("Named argument needs a name")
+            if "=" in name_value:
+                name, value = name_value.split("=", 1)
+                i += 1
+            else:
+                if i + 1 >= len(args):
+                    raise RuntimeError(f"Named argument --{name_value} needs a value")
+                name = name_value
+                value = args[i + 1]
+                i += 2
+            if name in named:
+                raise RuntimeError(f"Parameter {name} supplied more than once")
+            named[name] = value
+        else:
+            positional.append(arg)
+            i += 1
+
+    parameters = definition.parameters
+    if len(positional) > len(parameters):
+        raise RuntimeError("Function called with too many positional arguments")
+
+    for parameter, value in zip(parameters, positional):
+        values[parameter.name] = _validate_parameter_value(parameter, value)
+
+    for name, value in named.items():
+        parameter = next((p for p in parameters if p.name == name), None)
+        if parameter is None:
+            raise RuntimeError(f"Unknown parameter: {name}")
+        if name in values:
+            raise RuntimeError(f"Parameter {name} supplied more than once")
+        values[name] = _validate_parameter_value(parameter, value)
+
+    for parameter in parameters:
+        if parameter.name in values:
+            continue
+        if parameter.default is None:
+            raise RuntimeError(f"Missing function argument: {parameter.name}")
+        values[parameter.name] = parameter.default
+
+    return values
+
+
+def _validate_parameter_value(parameter: Parameter, value: str) -> str:
+    if parameter.kind == "-i":
+        return str(_parse_integer_literal(value))
+    if parameter.kind == "-s":
+        return value
+    if parameter.kind == "-l":
+        _validate_name(value, "parameter")
+        return value
+    if parameter.kind == "-r":
+        return value
+    if parameter.kind == "-c":
+        if not any(condition.value == value for condition in Condition):
+            raise RuntimeError(f"Unknown merge condition: {value}")
+        return value
+    if parameter.kind == "-o":
+        if not any(operator.value == value for operator in Operator):
+            raise RuntimeError(f"Unknown strategy: {value}")
+        return value
+    raise RuntimeError(f"Unknown parameter type: {parameter.kind}")
+
+
+def _parse_integer_literal(value: str) -> int:
+    if value == "true":
+        return 1
+    if value == "false":
+        return 0
+    return int(value)
+
+
+def _validate_name(value: str, kind: str) -> None:
+    if value == "HEAD":
+        raise RuntimeError(f"{kind} name cannot be HEAD")
+    if value.startswith("-"):
+        raise RuntimeError(f"{kind} name cannot start with -")
+    if any(char not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_/" for char in value):
+        raise RuntimeError(f"{kind} name may contain only A-Z, a-z, 0-9, -, _, and /")
+
+
+def _substitute_parameters(source: str, frame: dict[str, str]) -> str:
+    def replace(match):
+        name = match.group(1)
+        if name not in frame:
+            raise RuntimeError(f"Unknown parameter: {name}")
+        return frame[name]
+
+    return re.sub(r"\$([A-Za-z0-9_/-]+)", replace, source)
+
+
+def _run_source(repo: Repo, source: str) -> None:
+    from gitscript.parser import parse
+
+    for statement in parse(source):
+        statement.run(repo)

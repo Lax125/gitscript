@@ -14,8 +14,12 @@ from gitscript.statements import (
     CommitString,
     Config,
     Conflict,
+    AliasCall,
+    DefineAlias,
+    DefineFunction,
     DeleteBranches,
     DeleteTags,
+    Exit,
     Log,
     LogRange,
     MergeAbort,
@@ -29,6 +33,7 @@ from gitscript.statements import (
     Show,
     Statement,
     Tag,
+    Parameter,
 )
 
 
@@ -55,13 +60,40 @@ class _MergeStart:
     label: str | None = None
 
 
+def _prepare_lines(raw_lines: list[str], allow_incomplete: bool) -> list[_Line]:
+    lines: list[_Line] = []
+    i = 0
+
+    while i < len(raw_lines):
+        line_number = i + 1
+        text = raw_lines[i].rstrip("\n")
+
+        if _is_multiline_alias_start(text):
+            collected = [text]
+            while _has_unclosed_single_quote("\n".join(collected)):
+                i += 1
+                if i >= len(raw_lines):
+                    message = f"Line {line_number}: git config alias is missing closing quote"
+                    if allow_incomplete:
+                        raise IncompleteInput(message)
+                    raise ParseError(message)
+                collected.append(raw_lines[i].rstrip("\n"))
+            lines.append(_Line(line_number, "\n".join(collected)))
+        else:
+            lines.extend(_Line(line_number, part) for part in _split_statement_separators(text))
+
+        i += 1
+
+    return lines
+
+
 def parse(source: str | Iterable[str]) -> list[Statement]:
     if isinstance(source, str):
         raw_lines = source.splitlines()
     else:
         raw_lines = list(source)
 
-    lines = [_Line(i + 1, line.rstrip("\n")) for i, line in enumerate(raw_lines)]
+    lines = _prepare_lines(raw_lines, allow_incomplete=False)
     parser = _Parser(lines)
     return parser.parse_program()
 
@@ -72,7 +104,7 @@ def parse_repl(source: str | Iterable[str]) -> list[Statement]:
     else:
         raw_lines = list(source)
 
-    lines = [_Line(i + 1, line.rstrip("\n")) for i, line in enumerate(raw_lines)]
+    lines = _prepare_lines(raw_lines, allow_incomplete=True)
     parser = _Parser(lines, allow_incomplete=True)
     return parser.parse_program()
 
@@ -181,6 +213,9 @@ class _Parser:
 def _parse_statement(line: _Line) -> Statement | _MergeStart:
     raw = _strip_comment(line.text).strip()
 
+    if raw == "exit":
+        return Exit()
+
     if _is_commit_string_input(raw):
         if "--amend" in raw.split():
             raise ParseError(f"Line {line.number}: --amend is not allowed for string input commit")
@@ -243,7 +278,7 @@ def _parse_statement(line: _Line) -> Statement | _MergeStart:
             return RevListRange(target, limit, reverse)
         return RevList(target, limit, reverse)
 
-    raise ParseError(f"Line {line.number}: Unknown git command: {command}")
+    return AliasCall(command, args)
 
 
 def _parse_branch(args: list[str], line_number: int) -> Statement:
@@ -266,16 +301,18 @@ def _parse_tag(args: list[str], line_number: int) -> Statement:
     return Tag(_parse_name(args[0], line_number, "tag"))
 
 
-def _parse_config(args: list[str], line_number: int) -> Config:
+def _parse_config(args: list[str], line_number: int) -> Statement:
+    if not args:
+        raise ParseError(f"Line {line_number}: git config expects a key")
+
+    if args[0].startswith("alias."):
+        return _parse_alias_config(args, line_number)
+
     _expect_count(args, 2, line_number, "git config")
 
     key, value = args
     if key == "commit.verbose":
-        if value == "true":
-            return Config(key, True)
-        if value == "false":
-            return Config(key, False)
-        raise ParseError(f"Line {line_number}: commit.verbose must be true or false")
+        return Config(key, _parse_integer_literal(value, line_number, "commit.verbose"))
 
     if key == "merge.verbosity":
         try:
@@ -287,6 +324,68 @@ def _parse_config(args: list[str], line_number: int) -> Config:
         return Config(key, verbosity)
 
     raise ParseError(f"Line {line_number}: Unknown config key: {key}")
+
+
+def _parse_alias_config(args: list[str], line_number: int) -> DefineAlias | DefineFunction:
+    key = args[0]
+    name = key[len("alias."):]
+    _parse_name(name, line_number, "alias")
+
+    if len(args) < 2:
+        raise ParseError(f"Line {line_number}: git config alias needs a value")
+
+    parameters: list[Parameter] = []
+    i = 1
+    while i < len(args) - 1:
+        kind = args[i]
+        if kind not in {"-i", "-s", "-l", "-r", "-c", "-o"}:
+            raise ParseError(f"Line {line_number}: Unknown function parameter type: {kind}")
+        parameter_text = args[i + 1]
+        parameter_name, default = _parse_parameter(parameter_text, kind, line_number)
+        parameters.append(Parameter(kind, parameter_name, default))
+        i += 2
+
+    if i != len(args) - 1:
+        raise ParseError(f"Line {line_number}: Function parameter needs a name")
+
+    value = args[-1]
+    if value.startswith("!"):
+        return DefineFunction(name, parameters, value[1:])
+
+    if parameters:
+        raise ParseError(f"Line {line_number}: Shortform aliases cannot declare parameters")
+    return DefineAlias(name, value)
+
+
+def _parse_parameter(text: str, kind: str, line_number: int) -> tuple[str, str | None]:
+    if "=" in text:
+        name, default = text.split("=", 1)
+    else:
+        name, default = text, None
+
+    _parse_name(name, line_number, "parameter")
+    if default is not None:
+        default = _validate_parameter_default(kind, default, line_number)
+    return name, default
+
+
+def _validate_parameter_default(kind: str, value: str, line_number: int) -> str:
+    if kind == "-i":
+        return str(_parse_integer_literal(value, line_number, "integer parameter default"))
+    if kind == "-s":
+        return value
+    if kind == "-l":
+        return _parse_name(value, line_number, "parameter default")
+    if kind == "-r":
+        _parse_ref(value, line_number)
+        return value
+    if kind == "-c":
+        _parse_condition(value, line_number)
+        return value
+    if kind == "-o":
+        _parse_operator(value, line_number)
+        return value
+    raise ParseError(f"Line {line_number}: Unknown function parameter type: {kind}")
 
 
 def _parse_commit(args: list[str], line_number: int, message_is_quoted: bool) -> Statement:
@@ -325,10 +424,7 @@ def _parse_commit(args: list[str], line_number: int, message_is_quoted: bool) ->
             raise ParseError(f"Line {line_number}: --amend is not allowed for string commits")
         return CommitString(str(value))
 
-    try:
-        return Commit(int(value), amend)
-    except ValueError as exc:
-        raise ParseError(f"Line {line_number}: git commit -m needs an integer or quoted string") from exc
+    return Commit(_parse_integer_literal(str(value), line_number, "git commit -m"), amend)
 
 
 def _parse_cherry_pick(args: list[str], line_number: int) -> CherryPick | CherryPickRange:
@@ -463,13 +559,24 @@ def _parse_list_args(args: list[str], line_number: int, command: str) -> tuple[R
 
 def _parse_limit(text: str, line_number: int, command: str) -> int:
     try:
-        limit = int(text)
+        limit = _parse_integer_literal(text, line_number, f"{command} -n")
     except ValueError as exc:
         raise ParseError(f"Line {line_number}: {command} -n needs a non-negative integer") from exc
 
     if limit < 0:
         raise ParseError(f"Line {line_number}: {command} -n needs a non-negative integer")
     return limit
+
+
+def _parse_integer_literal(text: str, line_number: int, context: str) -> int:
+    if text == "true":
+        return 1
+    if text == "false":
+        return 0
+    try:
+        return int(text)
+    except ValueError as exc:
+        raise ParseError(f"Line {line_number}: {context} needs an integer literal") from exc
 
 
 def _parse_ref(text: str, line_number: int) -> Ref:
@@ -561,6 +668,7 @@ def _tokenize_ref(text: str, line_number: int) -> list[str]:
 
 
 def _strip_comment(text: str) -> str:
+    in_single_quote = False
     in_quote = False
     escaped = False
     for i, char in enumerate(text):
@@ -570,12 +678,81 @@ def _strip_comment(text: str) -> str:
         if char == "\\":
             escaped = True
             continue
-        if char == '"':
+        if char == "'" and not in_quote:
+            in_single_quote = not in_single_quote
+            continue
+        if char == '"' and not in_single_quote:
             in_quote = not in_quote
             continue
-        if char == "#" and not in_quote:
+        if char == "#" and not in_quote and not in_single_quote:
             return text[:i]
     return text
+
+
+def _split_statement_separators(text: str) -> list[str]:
+    parts: list[str] = []
+    start = 0
+    i = 0
+    in_single_quote = False
+    in_double_quote = False
+    escaped = False
+
+    while i < len(text):
+        char = text[i]
+        if escaped:
+            escaped = False
+            i += 1
+            continue
+        if char == "\\":
+            escaped = True
+            i += 1
+            continue
+        if char == "'" and not in_double_quote:
+            in_single_quote = not in_single_quote
+            i += 1
+            continue
+        if char == '"' and not in_single_quote:
+            in_double_quote = not in_double_quote
+            i += 1
+            continue
+        if text.startswith("&&", i) and not in_single_quote and not in_double_quote:
+            part = text[start:i].strip()
+            if part:
+                parts.append(part)
+            i += 2
+            start = i
+            continue
+        i += 1
+
+    part = text[start:].strip()
+    if part:
+        parts.append(part)
+    return parts
+
+
+def _is_multiline_alias_start(text: str) -> bool:
+    stripped = text.strip()
+    return stripped.startswith("git config alias.") and _has_unclosed_single_quote(text)
+
+
+def _has_unclosed_single_quote(text: str) -> bool:
+    in_single_quote = False
+    in_double_quote = False
+    escaped = False
+
+    for char in text:
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char == '"' and not in_single_quote:
+            in_double_quote = not in_double_quote
+            continue
+        if char == "'" and not in_double_quote:
+            in_single_quote = not in_single_quote
+    return in_single_quote
 
 
 def _is_commit_string_input(text: str) -> bool:

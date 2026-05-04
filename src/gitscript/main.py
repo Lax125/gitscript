@@ -4,14 +4,18 @@ from collections.abc import Sequence
 
 from gitscript.parser import IncompleteInput, ParseError, parse, parse_repl
 from gitscript.repo import Repo
+from gitscript.statements import ExitSignal
 
 
 def run_statements(source: str, repo: Repo | None = None) -> Repo:
     if repo is None:
         repo: Repo = Repo()
 
-    for statement in parse(source):
-        statement.run(repo)
+    try:
+        for statement in parse(source):
+            statement.run(repo)
+    except ExitSignal:
+        pass
 
     return repo
 
@@ -51,6 +55,8 @@ def repl() -> None:
         try:
             for statement in statements:
                 statement.run(repo)
+        except ExitSignal:
+            return
         except Exception as exc:
             print(exc, file=sys.stderr, flush=True)
 

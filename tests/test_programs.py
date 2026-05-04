@@ -317,7 +317,7 @@ class ProgramTests(unittest.TestCase):
     def test_commit_verbose_logs_commit_creation_to_debug_output(self):
         repo, output, debug = run_program_with_debug(
             """
-            git config commit.verbose true
+            git config commit.verbose 2
             git tag root
             git commit -m 1
             git commit --amend -m 2
@@ -388,6 +388,102 @@ class ProgramTests(unittest.TestCase):
         self.assertIn("[merge] abort target=loop handled_by=loop", debug)
         self.assertNotIn("condition==", debug)
         self.assertEqual(repo.branches["counter"].value, 0)
+
+    def test_statement_separator_and_true_false_integer_literals(self):
+        repo, output = run_program(
+            """
+            git commit -m true && git commit -m false && git rev-list -n 2
+            """
+        )
+
+        self.assertEqual(output, "0\n1\n")
+        self.assertEqual(repo.branches["main"].value, 0)
+
+    def test_statement_separator_treats_merge_conflict_as_one_statement(self):
+        repo, output = run_program(
+            """
+            git checkout -b counter
+            git commit -m 1
+            git checkout main
+            git merge -s >
+            <<<<<<< counter
+                git merge --abort
+            =======
+                git commit -m 9
+            >>>>>>> main && git show counter
+            """
+        )
+
+        self.assertEqual(output, "1\n")
+        self.assertEqual(repo.branches["counter"].value, 1)
+
+    def test_shortform_aliases_support_repeated_substitution(self):
+        repo, output = run_program(
+            """
+            git config alias.c 'commit -m'
+            git config alias.cm 'c'
+            git cm 5
+            git show
+            """
+        )
+
+        self.assertEqual(output, "5\n")
+        self.assertEqual(repo.branches["main"].value, 5)
+
+    def test_functions_bind_typed_parameters_on_call_stack(self):
+        repo, output = run_program(
+            """
+            git tag root
+            git commit -m 10
+            git branch ten
+            git checkout -b out root
+            git config alias.use -i amount -s text -l branch -r source -c condition -o strategy '!
+                git checkout $branch
+                git cherry-pick $source -s=$strategy
+                git merge -s $condition
+                <<<<<<< $branch
+                    git commit -m $amount
+                    git commit -m "$text"
+                =======
+                    git commit -m 0
+                >>>>>>> root
+            '
+            git use 7 "A" out ten > max
+            git rev-list --reverse root..out
+            """
+        )
+
+        self.assertEqual(output, "10\n7\n65\n")
+        self.assertEqual(repo.branches["out"].value, ord("A"))
+        self.assertEqual(repo.call_stack, [])
+
+    def test_function_defaults_named_arguments_and_exit(self):
+        repo, output = run_program(
+            """
+            git config alias.make -i amount=1 '!
+                git commit -m $amount
+                exit
+                git commit -m 99
+            '
+            git make
+            git make --amount 4
+            git rev-list -n 3
+            """
+        )
+
+        self.assertEqual(output, "4\n1\n0\n")
+        self.assertEqual(repo.branches["main"].value, 4)
+
+    def test_global_exit_stops_execution(self):
+        repo, output = run_program(
+            """
+            git commit -m 1 && exit && git commit -m 2
+            git show
+            """
+        )
+
+        self.assertEqual(output, "")
+        self.assertEqual(repo.branches["main"].value, 1)
 
 
 if __name__ == "__main__":
