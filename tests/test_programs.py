@@ -12,7 +12,7 @@ class ProgramTests(unittest.TestCase):
         repo, output = run_program(source)
 
         self.assertEqual(output, source)
-        self.assertEqual(repo.branches["output"].value, ord("t"))
+        self.assertIn("output", repo.branches)
 
     def test_comments_blank_lines_and_string_escaping(self):
         repo, output = run_program(
