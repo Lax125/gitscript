@@ -1,19 +1,10 @@
 import unittest
-from pathlib import Path
 
 from gitscript.parser import ParseError, parse
 from utils import run_program, run_program_with_debug
 
 
 class ProgramTests(unittest.TestCase):
-    def test_quine_example_prints_exactly_itself(self):
-        source = Path("examples/quine.gs").read_text(encoding="utf-8")
-
-        repo, output = run_program(source)
-
-        self.assertEqual(output, source)
-        self.assertIn("output", repo.branches)
-
     def test_comments_blank_lines_and_string_escaping(self):
         repo, output = run_program(
             r'''
@@ -453,12 +444,38 @@ git log HEAD~19..HEAD
                 git merge --abort
             =======
                 git commit -m 9
-            >>>>>>> main && git show counter
+            >>>>>>> main
+            git show counter
             """
         )
 
         self.assertEqual(output, "1\n")
         self.assertEqual(repo.branches["counter"].value, 1)
+
+        invalid_sources = [
+            """
+            git merge
+            <<<<<<< counter && git show
+            =======
+            >>>>>>> main
+            """,
+            """
+            git merge
+            <<<<<<< counter
+            ======= && git show
+            >>>>>>> main
+            """,
+            """
+            git merge
+            <<<<<<< counter
+            =======
+            >>>>>>> main && git show
+            """,
+        ]
+        for source in invalid_sources:
+            with self.subTest(source=source):
+                with self.assertRaises(ParseError):
+                    parse(source)
 
     def test_shortform_aliases_support_repeated_substitution(self):
         repo, output = run_program(
@@ -472,6 +489,58 @@ git log HEAD~19..HEAD
 
         self.assertEqual(output, "5\n")
         self.assertEqual(repo.branches["main"].value, 5)
+
+    def test_shortform_expansion_must_be_exactly_one_statement(self):
+        repo, output = run_program("git config alias.twice 'commit -m 20 && git show'\n")
+
+        self.assertEqual(output, "")
+        self.assertIn("twice", repo.aliases)
+
+        with self.assertRaisesRegex(RuntimeError, "exactly one statement"):
+            run_program(
+                """
+                git config alias.twice 'commit -m 20 && git show'
+                git twice
+                """
+            )
+
+    def test_shortform_expansion_can_define_alias_function_and_multiline_string(self):
+        repo, output = run_program(
+            '''\
+git config alias.make-short "config alias.c 'commit -m'"
+git make-short
+git c 12
+git config alias.make-function "config alias.bump '!git commit -m 3'"
+git make-function
+git bump
+git config alias.say 'commit -m'
+git say """A
+B"""
+git log HEAD~3..HEAD
+'''
+        )
+
+        self.assertEqual(output, "A\nB\n")
+        self.assertEqual(repo.branches["main"].value, ord("A"))
+
+    def test_function_bodies_are_validated_when_defined(self):
+        invalid_sources = [
+            ("git config alias.bad '!wat'\n", "must start with git"),
+            ("git config alias.bad '!git cherry-pick main -s nope'\n", "Unknown strategy"),
+            (
+                "git config alias.bad -s branch_name '!git checkout $branch_name'\n",
+                "branch name expects",
+            ),
+            (
+                "git config alias.bad -p target '!git branch -d $target'\n",
+                "branch deletion expects",
+            ),
+        ]
+
+        for source, message in invalid_sources:
+            with self.subTest(source=source):
+                with self.assertRaisesRegex(ParseError, message):
+                    run_program(source)
 
     def test_functions_bind_typed_parameters_on_call_stack(self):
         repo, output = run_program(
@@ -695,7 +764,7 @@ git log HEAD~19..HEAD
         self.assertEqual(repo.branches["main"].value, 2)
         self.assertEqual(repo.HEAD, "work")
 
-        with self.assertRaisesRegex(RuntimeError, "protected branch"):
+        with self.assertRaisesRegex(ParseError, "branch deletion expects"):
             run_program(
                 """
                 git checkout -b work

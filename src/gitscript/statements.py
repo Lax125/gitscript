@@ -9,7 +9,7 @@ from gitscript.refs import Ref, resolve, HeadRef
 from gitscript.commands import commit, commit_string, branch, checkout, reset, show, log, tag, cherry_pick, \
     rebase, delete_branch, delete_tag, cherry_pick_range, revert, revert_range, log_range, rev_list, rev_list_range
 from gitscript.operators import Condition, Operator
-from gitscript.repo import CommitBinding, Repo, RefBinding
+from gitscript.repo import CommitBinding, Repo, RefBinding, protect_binding
 
 
 class Statement:
@@ -125,6 +125,9 @@ class DefineFunction(Statement):
         self.body = body
 
     def run(self, repo: Repo):
+        from gitscript.parser import validate_function_body
+
+        validate_function_body(self.body, self.parameters)
         repo.aliases[self.name] = FunctionDefinition(self.parameters, self.body)
 
 
@@ -142,7 +145,7 @@ class AliasCall(Statement):
             source = "git " + definition.fragment
             if self.args:
                 source += " " + " ".join(_quote_arg(arg) for arg in self.args)
-            _run_source(repo, source)
+            _run_shortform(repo, self.name, source)
             return
 
         if isinstance(definition, FunctionDefinition):
@@ -404,6 +407,10 @@ def _log_merge_signal(repo: Repo, signal: str, target: Optional[str], handled_by
 
 
 def _quote_arg(arg: str) -> str:
+    if "\n" in arg:
+        if '"""' in arg:
+            raise RuntimeError('Shortform arguments containing both newlines and """ cannot be represented')
+        return f'"""{arg}"""'
     return shlex.quote(arg)
 
 
@@ -475,7 +482,7 @@ def _bind_parameter_value(
     elif parameter.kind == "-b":
         bindings[value_text] = repo.bind_caller_branch(value)
     elif parameter.kind == "-p":
-        bindings[value_text] = repo.protect_binding(repo.bind_caller_branch(value), repo.visible_name(value))
+        bindings[value_text] = protect_binding(repo.bind_caller_branch(value), repo.visible_name(value))
     elif parameter.kind == "-t":
         bindings[value_text] = repo.bind_caller_tag(value)
     elif parameter.kind == "-r":
@@ -560,3 +567,12 @@ def _run_source(repo: Repo, source: str) -> None:
 
     for statement in parse(source):
         statement.run(repo)
+
+
+def _run_shortform(repo: Repo, name: str, source: str) -> None:
+    from gitscript.parser import parse
+
+    statements = parse(source)
+    if len(statements) != 1:
+        raise RuntimeError(f"Shortform {name} expansion must be exactly one statement")
+    statements[0].run(repo)

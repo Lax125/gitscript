@@ -535,6 +535,34 @@ Defines a command shortform. After this config statement runs, a command beginni
 
 Arguments after the shortform are appended to the substituted command.
 
+Expanding a shortform must produce exactly one statement. It cannot produce multiple statements with `&&`.
+
+For example, this definition is accepted:
+
+```gitscript
+git config alias.ci 'commit -m'
+```
+
+This call expands to one statement:
+
+```gitscript
+git ci 20
+```
+
+This definition is also accepted, because shortforms are not validated when defined:
+
+```gitscript
+git config alias.abc 'commit -m 20 && git show'
+```
+
+But running it is an error:
+
+```gitscript
+git abc
+```
+
+The expanded text contains two statements, so it cannot be used as a shortform expansion.
+
 Example:
 
 ```gitscript
@@ -548,9 +576,9 @@ The second line is parsed as:
 git cherry-pick main -s=max
 ```
 
-Alias substitution can happen multiple times. If the replacement fragment begins with another shortform or function name, that name is expanded too.
+Alias substitution can happen multiple times. If the replacement fragment begins with another shortform or function name, that name is expanded too. The final expanded result must still be one statement.
 
-No validation is performed when the alias is defined. The fragment does not need to form a valid statement at definition time. It can even define another shortform or function when it is later expanded and executed.
+No validation is performed when the shortform is defined. The fragment does not need to form a valid statement at definition time. It can still expand to a statement that defines another shortform or function, or to a statement that commits a multiline string.
 
 Alias expansion happens while parsing the command being executed, using aliases that have already been executed. Aliases defined later in the program are not visible earlier in the program.
 
@@ -580,6 +608,39 @@ The same function can also be written with the first and last statements adjacen
 ```gitscript
 git config alias.dec '!git cherry-pick one -s=- && git show'
 ```
+
+#### Function Body Validation
+
+Function bodies are syntax-checked when the function is defined.
+
+Each statement in a function body must:
+
+* start with `git`, or
+* be `exit`
+
+Built-in `git` statements in a function body must conform to the same syntax as top-level built-in statements. This includes command options, ref syntax, merge conditions, cherry-pick strategies, and multiline string syntax.
+
+Parameter references are checked against the function's declared parameters. A parameter can only be used where its declared type is valid:
+
+* `-i` parameters can be used where integer literals are accepted
+* `-s` parameters can be used where string literals are accepted
+* `-l` parameters can be used where a new branch or tag name is accepted
+* `-b` parameters can be used where an existing unprotected branch name is accepted
+* `-p` parameters can be used where an existing protected branch name is accepted
+* `-t` parameters can be used where an existing tag name is accepted
+* `-r` parameters can be used where commit references are accepted
+* `-c` parameters can be used where merge conditions are accepted
+* `-o` parameters can be used where cherry-pick strategies are accepted
+
+This validation catches some errors before the function is ever called. For example, deleting a protected branch parameter is invalid:
+
+```gitscript
+git config alias.bad -p target '!
+  git branch -d $target
+'
+```
+
+Function body validation is syntax and type validation only. It does not prove that runtime refs exist, that arithmetic is safe, that loops terminate, or that a valid runtime path reaches every statement.
 
 ### Parameters
 
@@ -764,6 +825,14 @@ git show
 
 A merge-conflict control structure is one statement for this purpose. The `git merge [-s <condition>] [<label>]` line and its corresponding conflict markers and blocks stay together as a single statement, even though the statement spans multiple lines.
 
+Conflict markers are forced to stay on their own physical lines. `&&` is not allowed before or after:
+
+* `<<<<<<< <commit-ref>`
+* `=======`
+* `>>>>>>> <commit-ref>`
+
+This means the inside of a conflict block can use `&&` between ordinary statements, but the marker lines themselves cannot share a line with anything else.
+
 Example:
 
 ```gitscript
@@ -773,7 +842,7 @@ git merge -s > loop
 =======
     git merge --abort loop
 >>>>>>> root
-&& git show counter
+git show counter
 ```
 
 The final `git show counter` runs after the whole merge-conflict statement finishes.

@@ -239,6 +239,10 @@ class ProtectedBinding(RefBinding):
         raise RuntimeError(f"Cannot delete protected tag {self.name}")
 
 
+def protect_binding(binding: RefBinding, name: str) -> RefBinding:
+    return ProtectedBinding(binding, name)
+
+
 class Repo:
     def __init__(self):
         root = Commit(0, None)
@@ -259,7 +263,7 @@ class Repo:
     def push_function_frame(self, bindings: dict[str, RefBinding], parameters: dict[str, str]) -> None:
         caller_head = self.HEAD
         bindings = dict(bindings)
-        bindings["main"] = self.protect_binding(
+        bindings["main"] = protect_binding(
             self.bind_caller_branch(caller_head),
             "main",
         )
@@ -450,9 +454,6 @@ class Repo:
 
     def bind_caller_tag(self, name: str) -> RefBinding:
         return CallerBinding(self.bind_tag(name), self.visible_name(name))
-
-    def protect_binding(self, binding: RefBinding, name: str) -> RefBinding:
-        return ProtectedBinding(binding, name)
 
     def visible_name(self, name: str) -> str:
         frame = self.current_frame()

@@ -142,13 +142,13 @@ def _create_commit(repo: Repo, value: int, parent: Optional[Commit], operation: 
     return new
 
 
-def _log_commit(repo: Repo, commit: Commit, parent: Optional[Commit], operation: str) -> None:
+def _log_commit(repo: Repo, c: Commit, parent: Optional[Commit], operation: str) -> None:
     if not repo.commit_verbose:
         return
 
     parent_value = "none" if parent is None else str(parent.value)
     print(
-        f"[commit] branch={repo.HEAD} value={commit.value} parent={parent_value} operation={operation}",
+        f"[commit] branch={repo.HEAD} value={c.value} parent={parent_value} operation={operation}",
         file=sys.stderr,
     )
 

@@ -6,8 +6,12 @@ from utils import run_program
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def get_example(name: str) -> str:
+    return (ROOT / "examples" / name).read_text(encoding="utf-8")
+
+
 def run_example(name: str, inputs: list[str] | None = None) -> str:
-    return run_program((ROOT / "examples" / name).read_text(encoding="utf-8"), inputs)[1]
+    return run_program(get_example(name), inputs)[1]
 
 
 class ExampleTests(unittest.TestCase):
@@ -50,6 +54,9 @@ class ExampleTests(unittest.TestCase):
             run_example("word_sort.gs", ["dog", "cat", "cat", "ant", ""]),
             "ant\ncat\ncat\ndog\n",
         )
+
+    def test_quine(self):
+        self.assertEqual(run_example("quine.gs", [""]), get_example("quine.gs"))
 
 
 if __name__ == '__main__':

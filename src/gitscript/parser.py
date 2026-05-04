@@ -1,4 +1,5 @@
 import shlex
+import re
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -69,18 +70,7 @@ def _prepare_lines(raw_lines: list[str], allow_incomplete: bool) -> list[_Line]:
         line_number = i + 1
         text = raw_lines[i].rstrip("\n")
 
-        if _is_triple_commit_string_start(text):
-            collected = [text]
-            while not _has_closed_triple_commit_string("\n".join(collected)):
-                i += 1
-                if i >= len(raw_lines):
-                    message = f"Line {line_number}: triple-quoted git commit string is missing closing quote"
-                    if allow_incomplete:
-                        raise IncompleteInput(message)
-                    raise ParseError(message)
-                collected.append(raw_lines[i].rstrip("\n"))
-            lines.append(_Line(line_number, "\n".join(collected)))
-        elif _is_multiline_alias_start(text):
+        if _is_multiline_alias_start(text):
             collected = [text]
             while _has_unclosed_single_quote("\n".join(collected)):
                 i += 1
@@ -91,8 +81,22 @@ def _prepare_lines(raw_lines: list[str], allow_incomplete: bool) -> list[_Line]:
                     raise ParseError(message)
                 collected.append(raw_lines[i].rstrip("\n"))
             lines.append(_Line(line_number, "\n".join(collected)))
+        elif _is_triple_commit_string_start(text) or _has_unclosed_triple_quote(text):
+            collected = [text]
+            while _has_unclosed_triple_quote("\n".join(collected)):
+                i += 1
+                if i >= len(raw_lines):
+                    message = f"Line {line_number}: triple-quoted string is missing closing quote"
+                    if allow_incomplete:
+                        raise IncompleteInput(message)
+                    raise ParseError(message)
+                collected.append(raw_lines[i].rstrip("\n"))
+            lines.append(_Line(line_number, "\n".join(collected)))
         else:
-            lines.extend(_Line(line_number, part) for part in _split_statement_separators(text))
+            parts = _split_statement_separators(text)
+            if len(parts) > 1 and any(_is_conflict_marker(part.strip()) for part in parts):
+                raise ParseError(f"Line {line_number}: Conflict markers cannot share a line with &&")
+            lines.extend(_Line(line_number, part) for part in parts)
 
         i += 1
 
@@ -119,6 +123,14 @@ def parse_repl(source: str | Iterable[str]) -> list[Statement]:
     lines = _prepare_lines(raw_lines, allow_incomplete=True)
     parser = _Parser(lines, allow_incomplete=True)
     return parser.parse_program()
+
+
+def validate_function_body(body: str, parameters: list[Parameter]) -> None:
+    parameter_kinds = {parameter.name: parameter.kind for parameter in parameters}
+    lines = _prepare_lines(body.splitlines(), allow_incomplete=False)
+    _validate_function_statement_starts(lines)
+    _validate_function_parameter_uses(lines, parameter_kinds)
+    parse(_substitute_function_parameter_placeholders(body, parameter_kinds))
 
 
 class _Parser:
@@ -489,7 +501,6 @@ def _parse_cherry_pick(args: list[str], line_number: int) -> CherryPick | Cherry
     if not args:
         raise ParseError(f"Line {line_number}: git cherry-pick needs a commit reference or range")
 
-    target = None
     op = Operator.THEIRS
     i = 1
     target = _parse_range_or_ref(args[0], line_number)
@@ -671,6 +682,223 @@ def _parse_ref_atom(tokens: "_RefTokens") -> Ref:
     return BranchRef(_parse_name(token, tokens.line_number, "ref"))
 
 
+def _validate_function_statement_starts(lines: list[_Line]) -> None:
+    for line in lines:
+        stripped = _strip_comment(line.text).strip()
+        if not stripped or _is_comment(stripped) or _is_conflict_marker(stripped):
+            continue
+        if stripped.startswith("git ") or stripped == "git" or stripped == "exit":
+            continue
+        raise ParseError(f"Line {line.number}: Function body statements must start with git or be exit")
+
+
+def _validate_function_parameter_uses(lines: list[_Line], parameter_kinds: dict[str, str]) -> None:
+    for line in lines:
+        raw = _strip_comment(line.text).strip()
+        if not raw or _is_comment(raw):
+            continue
+
+        for name in _find_parameter_refs(raw):
+            if name not in parameter_kinds:
+                raise ParseError(f"Line {line.number}: Unknown parameter: {name}")
+
+        if raw.startswith("<<<<<<<"):
+            _require_parameter_kinds(raw[7:].strip(), parameter_kinds, _REF_PARAMETER_KINDS, line.number, "commit reference")
+            continue
+        if raw.startswith(">>>>>>>"):
+            _require_parameter_kinds(raw[7:].strip(), parameter_kinds, _REF_PARAMETER_KINDS, line.number, "commit reference")
+            continue
+        if raw.startswith("=======") or raw == "exit":
+            continue
+
+        try:
+            parts = shlex.split(raw, posix=True)
+        except ValueError:
+            continue
+
+        if len(parts) < 2 or parts[0] != "git":
+            continue
+
+        command = parts[1]
+        args = parts[2:]
+        if command == "commit":
+            _validate_commit_parameters(raw, args, parameter_kinds, line.number)
+        elif command == "branch":
+            _validate_branch_parameters(args, parameter_kinds, line.number)
+        elif command == "checkout":
+            _validate_checkout_parameters(args, parameter_kinds, line.number)
+        elif command == "reset":
+            if args:
+                _require_parameter_kinds(args[0], parameter_kinds, _REF_PARAMETER_KINDS, line.number, "commit reference")
+        elif command == "merge":
+            _validate_merge_parameters(args, parameter_kinds, line.number)
+        elif command == "cherry-pick":
+            _validate_cherry_pick_parameters(args, parameter_kinds, line.number)
+        elif command in {"revert", "rebase"}:
+            if args:
+                _require_parameter_kinds(args[0], parameter_kinds, _REF_PARAMETER_KINDS, line.number, "commit reference")
+        elif command == "tag":
+            _validate_tag_parameters(args, parameter_kinds, line.number)
+        elif command in {"show", "log", "rev-list"}:
+            _validate_list_like_parameters(args, parameter_kinds, line.number)
+
+
+_REF_PARAMETER_KINDS = frozenset({"-r", "-l", "-b", "-p", "-t"})
+
+
+def _validate_commit_parameters(raw: str, args: list[str], parameter_kinds: dict[str, str], line_number: int) -> None:
+    message_is_quoted = _commit_message_is_quoted(raw)
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--amend":
+            i += 1
+        elif arg == "-m":
+            if i + 1 < len(args):
+                expected = {"-s"} if message_is_quoted else {"-i"}
+                _require_parameter_kinds(args[i + 1], parameter_kinds, expected, line_number, "commit message")
+            i += 2
+        elif arg.startswith("-m="):
+            expected = {"-s"} if message_is_quoted else {"-i"}
+            _require_parameter_kinds(arg[3:], parameter_kinds, expected, line_number, "commit message")
+            i += 1
+        else:
+            i += 1
+
+
+def _validate_branch_parameters(args: list[str], parameter_kinds: dict[str, str], line_number: int) -> None:
+    if not args:
+        return
+    if args[0] == "-d":
+        for arg in args[1:]:
+            _require_parameter_kinds(arg, parameter_kinds, {"-b"}, line_number, "branch deletion")
+        return
+
+    _require_parameter_kinds(args[0], parameter_kinds, {"-l"}, line_number, "new branch name")
+    if len(args) > 1:
+        _require_parameter_kinds(args[1], parameter_kinds, _REF_PARAMETER_KINDS, line_number, "commit reference")
+
+
+def _validate_checkout_parameters(args: list[str], parameter_kinds: dict[str, str], line_number: int) -> None:
+    if not args:
+        return
+    if args[0] == "-b":
+        if len(args) > 1:
+            _require_parameter_kinds(args[1], parameter_kinds, {"-l"}, line_number, "new branch name")
+        if len(args) > 2:
+            _require_parameter_kinds(args[2], parameter_kinds, _REF_PARAMETER_KINDS, line_number, "commit reference")
+        return
+
+    _require_parameter_kinds(args[0], parameter_kinds, {"-l", "-b", "-p"}, line_number, "branch name")
+
+
+def _validate_merge_parameters(args: list[str], parameter_kinds: dict[str, str], line_number: int) -> None:
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg in {"--continue", "--abort"}:
+            if i + 1 < len(args):
+                _require_parameter_kinds(args[i + 1], parameter_kinds, {"-l"}, line_number, "merge label")
+            return
+        if arg == "-s":
+            if i + 1 < len(args):
+                _require_parameter_kinds(args[i + 1], parameter_kinds, {"-c"}, line_number, "merge condition")
+            i += 2
+        elif arg.startswith("-s="):
+            _require_parameter_kinds(arg[3:], parameter_kinds, {"-c"}, line_number, "merge condition")
+            i += 1
+        else:
+            _require_parameter_kinds(arg, parameter_kinds, {"-l"}, line_number, "merge label")
+            i += 1
+
+
+def _validate_cherry_pick_parameters(args: list[str], parameter_kinds: dict[str, str], line_number: int) -> None:
+    if not args:
+        return
+
+    _require_parameter_kinds(args[0], parameter_kinds, _REF_PARAMETER_KINDS, line_number, "commit reference")
+    i = 1
+    while i < len(args):
+        arg = args[i]
+        if arg == "-s":
+            if i + 1 < len(args):
+                _require_parameter_kinds(args[i + 1], parameter_kinds, {"-o"}, line_number, "cherry-pick strategy")
+            i += 2
+        elif arg.startswith("-s="):
+            _require_parameter_kinds(arg[3:], parameter_kinds, {"-o"}, line_number, "cherry-pick strategy")
+            i += 1
+        else:
+            i += 1
+
+
+def _validate_tag_parameters(args: list[str], parameter_kinds: dict[str, str], line_number: int) -> None:
+    if not args:
+        return
+    if args[0] == "-d":
+        for arg in args[1:]:
+            _require_parameter_kinds(arg, parameter_kinds, {"-t"}, line_number, "tag deletion")
+        return
+    _require_parameter_kinds(args[0], parameter_kinds, {"-l"}, line_number, "new tag name")
+
+
+def _validate_list_like_parameters(args: list[str], parameter_kinds: dict[str, str], line_number: int) -> None:
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "-n":
+            if i + 1 < len(args):
+                _require_parameter_kinds(args[i + 1], parameter_kinds, {"-i"}, line_number, "list limit")
+            i += 2
+        elif arg.startswith("-n="):
+            _require_parameter_kinds(arg[3:], parameter_kinds, {"-i"}, line_number, "list limit")
+            i += 1
+        elif arg == "--reverse":
+            i += 1
+        else:
+            _require_parameter_kinds(arg, parameter_kinds, _REF_PARAMETER_KINDS, line_number, "commit reference")
+            i += 1
+
+
+def _require_parameter_kinds(
+        text: str,
+        parameter_kinds: dict[str, str],
+        expected: set[str] | frozenset[str],
+        line_number: int,
+        context: str,
+) -> None:
+    for name in _find_parameter_refs(text):
+        actual = parameter_kinds[name]
+        if actual not in expected:
+            expected_text = ", ".join(sorted(expected))
+            raise ParseError(
+                f"Line {line_number}: Parameter {name} has type {actual}, "
+                f"but {context} expects {expected_text}"
+            )
+
+
+def _substitute_function_parameter_placeholders(body: str, parameter_kinds: dict[str, str]) -> str:
+    placeholders = {
+        "-i": "1",
+        "-s": "text",
+        "-l": "new-label",
+        "-b": "existing-branch",
+        "-p": "protected-branch",
+        "-t": "existing-tag",
+        "-r": "HEAD",
+        "-c": "==",
+        "-o": "+",
+    }
+
+    def replace(match):
+        return placeholders[parameter_kinds[match.group(1)]]
+
+    return re.sub(r"\$([A-Za-z0-9_/-]+)", replace, body)
+
+
+def _find_parameter_refs(text: str) -> list[str]:
+    return re.findall(r"\$([A-Za-z0-9_/-]+)", text)
+
+
 class _RefTokens:
     def __init__(self, text: str, line_number: int):
         self.tokens = _tokenize_ref(text, line_number)
@@ -797,11 +1025,8 @@ def _is_triple_commit_string_start(text: str) -> bool:
     return _triple_commit_string_start(text) is not None
 
 
-def _has_closed_triple_commit_string(text: str) -> bool:
-    message_start = _triple_commit_string_start(text)
-    if message_start is None:
-        return False
-    return text.find('"""', message_start + 3) != -1
+def _has_unclosed_triple_quote(text: str) -> bool:
+    return text.count('"""') % 2 == 1
 
 
 def _triple_commit_string_start(text: str) -> int | None:
@@ -886,6 +1111,10 @@ def _has_closing_quote(text: str, quote_index: int) -> bool:
 
 def _is_comment(stripped: str) -> bool:
     return stripped.startswith("#")
+
+
+def _is_conflict_marker(stripped: str) -> bool:
+    return stripped.startswith(("<<<<<<<", "=======", ">>>>>>>"))
 
 
 def _expect_count(args: list[str], expected: int | tuple[int, ...], line_number: int, command: str) -> None:
