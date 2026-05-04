@@ -12,6 +12,7 @@ from gitscript.statements import (
     CherryPickRange,
     Commit,
     CommitString,
+    Config,
     Conflict,
     DeleteBranches,
     DeleteTags,
@@ -208,6 +209,8 @@ def _parse_statement(line: _Line) -> Statement | _MergeStart:
             )
         _expect_count(args, 1, line.number, "git checkout")
         return Checkout(_parse_name(args[0], line.number, "branch"))
+    if command == "config":
+        return _parse_config(args, line.number)
     if command == "reset":
         _expect_count(args, 1, line.number, "git reset")
         return Reset(_parse_ref(args[0], line.number))
@@ -261,6 +264,29 @@ def _parse_tag(args: list[str], line_number: int) -> Statement:
 
     _expect_count(args, 1, line_number, "git tag")
     return Tag(_parse_name(args[0], line_number, "tag"))
+
+
+def _parse_config(args: list[str], line_number: int) -> Config:
+    _expect_count(args, 2, line_number, "git config")
+
+    key, value = args
+    if key == "commit.verbose":
+        if value == "true":
+            return Config(key, True)
+        if value == "false":
+            return Config(key, False)
+        raise ParseError(f"Line {line_number}: commit.verbose must be true or false")
+
+    if key == "merge.verbosity":
+        try:
+            verbosity = int(value)
+        except ValueError as exc:
+            raise ParseError(f"Line {line_number}: merge.verbosity must be 0, 1, or 2") from exc
+        if verbosity not in {0, 1, 2}:
+            raise ParseError(f"Line {line_number}: merge.verbosity must be 0, 1, or 2")
+        return Config(key, verbosity)
+
+    raise ParseError(f"Line {line_number}: Unknown config key: {key}")
 
 
 def _parse_commit(args: list[str], line_number: int, message_is_quoted: bool) -> Statement:

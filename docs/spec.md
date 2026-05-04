@@ -131,7 +131,7 @@ git config merge.verbosity 2
 
 Configures debug logging.
 
-Debug logs are diagnostic output and should be written separately from program output so commands like `git log`, `git show`, and `git rev-list` remain usable as program output.
+Debug logs are diagnostic output and are written separately from program output so commands like `git log`, `git show`, and `git rev-list` remain usable as program output.
 
 #### `commit.verbose`
 
@@ -147,11 +147,11 @@ When `commit.verbose` is `true`, GitScript logs every new commit created by any 
 * `git revert <commit-range>`, once per replayed commit
 * `git rebase`, once per replayed commit
 
-`git commit --amend` should log the replacement commit that is created.
+`git commit --amend` logs the replacement commit that is created.
 
 Operations that only move references, such as `git reset`, `git branch`, `git checkout`, and `git tag`, do not create commits and therefore do not emit commit logs.
 
-Each commit log entry should include enough information to identify:
+Each commit log entry includes enough information to identify:
 
 * the active branch receiving the new commit
 * the new commit's value
@@ -168,14 +168,14 @@ Merge verbosity controls debug logging for merge-conflict control flow:
 * `1`: log when a merge block begins evaluating and log each conditional check
 * `2`: log everything from `1`, plus merge continues and aborts
 
-At verbosity `1`, each conditional-check log should include:
+At verbosity `1`, each conditional-check log includes:
 
 * the merge label, if present
 * the condition
 * the two resolved commit values
 * whether the top or bottom block was selected
 
-At verbosity `2`, continue and abort logs should include:
+At verbosity `2`, continue and abort logs include:
 
 * whether the signal is `continue` or `abort`
 * the target label, if present
@@ -317,7 +317,7 @@ git merge [-s <condition>] [<label>]
 7. `git merge --continue <label>` jumps back to the matching labeled merge block, even through nested merge blocks.
 8. `git merge --abort <label>` skips to the end of the matching labeled merge block, even through nested merge blocks.
 
-This makes loops explicit: use `git merge --continue` when a selected side should repeat. One-shot conditional behavior is the default because falling out of a side exits.
+This makes loops explicit: use `git merge --continue` when a selected side will repeat. One-shot conditional behavior is the default because falling out of a side exits.
 
 ---
 

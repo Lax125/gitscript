@@ -11,6 +11,7 @@ from gitscript.statements import (
     CherryPick,
     Commit,
     CommitString,
+    Config,
     Conflict,
     DeleteBranches,
     DeleteTags,
@@ -109,6 +110,39 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(statements[0].op, Operator.SUBTRACT)
         self.assertIsInstance(statements[1], CherryPick)
         self.assertEqual(statements[1].op, Operator.SUBTRACT)
+
+    def test_parse_config(self):
+        statements = parse(
+            """
+            git config commit.verbose true
+            git config commit.verbose false
+            git config merge.verbosity 0
+            git config merge.verbosity 1
+            git config merge.verbosity 2
+            """
+        )
+
+        self.assertIsInstance(statements[0], Config)
+        self.assertEqual(statements[0].key, "commit.verbose")
+        self.assertTrue(statements[0].value)
+        self.assertFalse(statements[1].value)
+        self.assertEqual(statements[2].value, 0)
+        self.assertEqual(statements[3].value, 1)
+        self.assertEqual(statements[4].value, 2)
+
+    def test_config_rejects_unknown_keys_and_values(self):
+        invalid_sources = [
+            "git config commit.verbose yes",
+            "git config merge.verbosity 3",
+            "git config merge.verbosity nope",
+            "git config branch.verbose true",
+            "git config commit.verbose",
+        ]
+
+        for source in invalid_sources:
+            with self.subTest(source=source):
+                with self.assertRaises(ParseError):
+                    parse(source)
 
     def test_parse_conflict_block(self):
         statements = parse(

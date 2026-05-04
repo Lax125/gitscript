@@ -1,7 +1,7 @@
 import unittest
 
 from gitscript.parser import ParseError, parse
-from utils import run_program
+from utils import run_program, run_program_with_debug
 
 
 class ProgramTests(unittest.TestCase):
@@ -303,6 +303,81 @@ class ProgramTests(unittest.TestCase):
         self.assertEqual(output, "0\n0\n")
         self.assertEqual(repo.branches["counter"].value, 0)
         self.assertEqual(repo.branches["main"].value, 0)
+
+    def test_commit_verbose_logs_commit_creation_to_debug_output(self):
+        repo, output, debug = run_program_with_debug(
+            """
+            git config commit.verbose true
+            git tag root
+            git commit -m 1
+            git commit --amend -m 2
+            git commit -m "Hi"
+            git branch base
+            git cherry-pick base
+            git cherry-pick root..base
+            git revert base
+            git revert root..base
+            git checkout -b feature root
+            git commit -m 7
+            git rebase main
+            git config commit.verbose false
+            git commit -m 99
+            """
+        )
+
+        self.assertEqual(output, "")
+        self.assertIn("[commit] branch=main value=1 parent=0 operation=git commit", debug)
+        self.assertIn("[commit] branch=main value=2 parent=0 operation=git commit", debug)
+        self.assertIn("operation=git commit string", debug)
+        self.assertIn("operation=git cherry-pick", debug)
+        self.assertIn("operation=git cherry-pick range", debug)
+        self.assertIn("operation=git revert", debug)
+        self.assertIn("operation=git revert range", debug)
+        self.assertIn("[commit] branch=feature value=7 parent=0 operation=git commit", debug)
+        self.assertIn("operation=git rebase", debug)
+        self.assertNotIn("value=99", debug)
+        self.assertEqual(repo.branches["feature"].value, 99)
+
+    def test_merge_verbosity_logs_merge_debug_output(self):
+        repo, output, debug = run_program_with_debug(
+            """
+            git checkout -b counter
+            git commit -m 1
+            git checkout -b one
+            git commit -m 1
+            git checkout main
+
+            git config merge.verbosity 2
+            git merge -s > loop
+            <<<<<<< counter
+                git checkout counter
+                git cherry-pick one -s=-
+                git merge --continue loop
+            =======
+                git merge --abort loop
+            >>>>>>> main
+
+            git config merge.verbosity 0
+            git checkout main
+            git merge -s ==
+            <<<<<<< main
+                git commit -m 9
+            =======
+                git commit -m 8
+            >>>>>>> counter
+
+            git show counter
+            """
+        )
+
+        self.assertEqual(output, "0\n")
+        self.assertIn("[merge] begin label=loop condition=>", debug)
+        self.assertIn("[merge] check label=loop condition=> left=1 right=0 selected=top", debug)
+        self.assertIn("[merge] continue target=loop handled_by=loop", debug)
+        self.assertIn("[merge] check label=loop condition=> left=0 right=0 selected=bottom", debug)
+        self.assertIn("[merge] abort target=loop handled_by=loop", debug)
+        self.assertNotIn("condition==", debug)
+        self.assertEqual(repo.branches["counter"].value, 0)
 
 
 if __name__ == "__main__":

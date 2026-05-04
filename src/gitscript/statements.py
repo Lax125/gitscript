@@ -1,3 +1,4 @@
+import sys
 from typing import Optional
 
 from gitscript.commit_range import CommitRange
@@ -52,6 +53,20 @@ class DeleteTags(Statement):
     def run(self, repo: Repo):
         for tag_name in self.tag_names:
             delete_tag(repo, tag_name)
+
+
+class Config(Statement):
+    def __init__(self, key: str, value: bool | int):
+        self.key = key
+        self.value = value
+
+    def run(self, repo: Repo):
+        if self.key == "commit.verbose":
+            repo.commit_verbose = bool(self.value)
+        elif self.key == "merge.verbosity":
+            repo.merge_verbosity = int(self.value)
+        else:
+            raise RuntimeError(f"Unknown config key: {self.key}")
 
 class Checkout(Statement):
     def __init__(self, branch_name: str, create_at: Optional[Ref] = None):
@@ -208,9 +223,13 @@ class Conflict(Statement):
 
     def run(self, repo: Repo):
         while True:
+            _log_merge_begin(repo, self.label, self.condition)
             commit_a = resolve(self.ref_a, repo)
             commit_b = resolve(self.ref_b, repo)
-            block = self.block_a if _condition_matches(commit_a, commit_b, self.condition) else self.block_b
+            condition_matches = _condition_matches(commit_a, commit_b, self.condition)
+            block_name = "top" if condition_matches else "bottom"
+            _log_merge_check(repo, self.label, self.condition, commit_a.value, commit_b.value, block_name)
+            block = self.block_a if condition_matches else self.block_b
 
             try:
                 for statement in block:
@@ -218,10 +237,12 @@ class Conflict(Statement):
             except MergeContinueSignal as signal:
                 if signal.label is not None and signal.label != self.label:
                     raise
+                _log_merge_signal(repo, "continue", signal.label, self.label)
                 continue
             except MergeAbortSignal as signal:
                 if signal.label is not None and signal.label != self.label:
                     raise
+                _log_merge_signal(repo, "abort", signal.label, self.label)
                 break
 
             break
@@ -248,3 +269,39 @@ def _condition_matches(commit_a, commit_b, condition: Condition) -> bool:
         return value_a <= value_b
 
     raise RuntimeError(f"Unknown condition: {condition}")
+
+
+def _label_text(label: Optional[str]) -> str:
+    return "<none>" if label is None else label
+
+
+def _log_merge_begin(repo: Repo, label: Optional[str], condition: Condition) -> None:
+    if repo.merge_verbosity < 1:
+        return
+    print(f"[merge] begin label={_label_text(label)} condition={condition.value}", file=sys.stderr)
+
+
+def _log_merge_check(
+        repo: Repo,
+        label: Optional[str],
+        condition: Condition,
+        value_a: int,
+        value_b: int,
+        selected: str,
+) -> None:
+    if repo.merge_verbosity < 1:
+        return
+    print(
+        f"[merge] check label={_label_text(label)} condition={condition.value} "
+        f"left={value_a} right={value_b} selected={selected}",
+        file=sys.stderr,
+    )
+
+
+def _log_merge_signal(repo: Repo, signal: str, target: Optional[str], handled_by: Optional[str]) -> None:
+    if repo.merge_verbosity < 2:
+        return
+    print(
+        f"[merge] {signal} target={_label_text(target)} handled_by={_label_text(handled_by)}",
+        file=sys.stderr,
+    )

@@ -1,3 +1,4 @@
+import sys
 from typing import Optional
 
 from gitscript.commit_range import CommitRange
@@ -7,12 +8,12 @@ from gitscript.operators import Operator
 from gitscript.repo import Repo
 
 
-def commit(repo: Repo, value: int, amend=False):
+def commit(repo: Repo, value: int, amend=False, operation: str = "git commit"):
     head = repo.branches[repo.HEAD]
 
     parent = head.parent if amend else head
 
-    new = Commit(value, parent)
+    new = _create_commit(repo, value, parent, operation)
 
     # move branch
     repo.branches[repo.HEAD] = new
@@ -24,7 +25,7 @@ def commit_string(repo: Repo, value: str):
     new = parent
 
     for char in value[::-1]:
-        new = Commit(ord(char), parent)
+        new = _create_commit(repo, ord(char), parent, "git commit string")
         parent = new
 
     # move branch
@@ -32,20 +33,20 @@ def commit_string(repo: Repo, value: str):
 
 def cherry_pick(repo: Repo, ref: Ref, op: Operator = Operator.THEIRS):
     c = ref.resolve(repo)
-    commit(repo, _apply_operator(repo.branches[repo.HEAD].value, c.value, op))
+    commit(repo, _apply_operator(repo.branches[repo.HEAD].value, c.value, op), operation="git cherry-pick")
 
 def cherry_pick_range(repo: Repo, commit_range: CommitRange, op: Operator = Operator.THEIRS):
     # reverse resolved range to get back chronological ordering
     for c in commit_range.resolve(repo)[::-1]:
-        commit(repo, _apply_operator(repo.branches[repo.HEAD].value, c.value, op))
+        commit(repo, _apply_operator(repo.branches[repo.HEAD].value, c.value, op), operation="git cherry-pick range")
 
 def revert(repo: Repo, ref: Ref):
     c = ref.resolve(repo)
-    commit(repo, -c.value)
+    commit(repo, -c.value, operation="git revert")
 
 def revert_range(repo: Repo, commit_range: CommitRange):
     for c in commit_range.resolve(repo):
-        commit(repo, -c.value)
+        commit(repo, -c.value, operation="git revert range")
 
 def reset(repo, ref):
     repo.branches[repo.HEAD] = resolve(ref, repo)
@@ -101,7 +102,7 @@ def rebase(repo, ref):
 
     # replay in forward order
     for old in reversed(stack):
-        base = Commit(old.value, base)
+        base = _create_commit(repo, old.value, base, "git rebase")
 
     # update branch
     repo.branches[repo.HEAD] = base
@@ -146,6 +147,23 @@ def _commits_to_string(commits: list[Commit]) -> str:
 def _print_values(commits: list[Commit]) -> None:
     for c in commits:
         print(c.value)
+
+
+def _create_commit(repo: Repo, value: int, parent: Optional[Commit], operation: str) -> Commit:
+    new = Commit(value, parent)
+    _log_commit(repo, new, parent, operation)
+    return new
+
+
+def _log_commit(repo: Repo, commit: Commit, parent: Optional[Commit], operation: str) -> None:
+    if not repo.commit_verbose:
+        return
+
+    parent_value = "none" if parent is None else str(parent.value)
+    print(
+        f"[commit] branch={repo.HEAD} value={commit.value} parent={parent_value} operation={operation}",
+        file=sys.stderr,
+    )
 
 
 def _apply_operator(ours: int, theirs: int, op: Operator) -> int:

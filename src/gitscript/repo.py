@@ -8,6 +8,8 @@ class Repo:
         self.branches = {"main": root}
         self.tags = {}
         self.HEAD = "main"
+        self.commit_verbose = False
+        self.merge_verbosity = 0
 
     def resolve(self, tag_or_branch_name: str) -> Commit:
         if tag_or_branch_name in self.tags:
