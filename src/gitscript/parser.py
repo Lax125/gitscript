@@ -69,7 +69,18 @@ def _prepare_lines(raw_lines: list[str], allow_incomplete: bool) -> list[_Line]:
         line_number = i + 1
         text = raw_lines[i].rstrip("\n")
 
-        if _is_multiline_alias_start(text):
+        if _is_triple_commit_string_start(text):
+            collected = [text]
+            while not _has_closed_triple_commit_string("\n".join(collected)):
+                i += 1
+                if i >= len(raw_lines):
+                    message = f"Line {line_number}: triple-quoted git commit string is missing closing quote"
+                    if allow_incomplete:
+                        raise IncompleteInput(message)
+                    raise ParseError(message)
+                collected.append(raw_lines[i].rstrip("\n"))
+            lines.append(_Line(line_number, "\n".join(collected)))
+        elif _is_multiline_alias_start(text):
             collected = [text]
             while _has_unclosed_single_quote("\n".join(collected)):
                 i += 1
@@ -212,6 +223,10 @@ class _Parser:
 
 
 def _parse_statement(line: _Line) -> Statement | _MergeStart:
+    triple_commit = _parse_triple_commit_string(line.text, line.number)
+    if triple_commit is not None:
+        return triple_commit
+
     raw = _strip_comment(line.text).strip()
 
     if raw == "exit":
@@ -429,6 +444,45 @@ def _parse_commit(args: list[str], line_number: int, message_is_quoted: bool) ->
         return CommitString(str(value))
 
     return Commit(_parse_integer_literal(str(value), line_number, "git commit -m"), amend)
+
+
+def _parse_triple_commit_string(text: str, line_number: int) -> CommitString | None:
+    message_start = _triple_commit_string_start(text)
+    if message_start is None:
+        return None
+
+    opening = message_start + 3
+    closing = text.find('"""', opening)
+    if closing == -1:
+        raise ParseError(f"Line {line_number}: triple-quoted git commit string is missing closing quote")
+
+    prefix_parts = shlex.split(text[:message_start], posix=True)
+    _validate_triple_commit_prefix(prefix_parts, line_number)
+
+    after = text[closing + 3 :]
+    if _strip_comment(after).strip():
+        raise ParseError(f"Line {line_number}: Unexpected git commit argument after triple-quoted string")
+
+    return CommitString(text[opening:closing])
+
+
+def _validate_triple_commit_prefix(parts: list[str], line_number: int) -> None:
+    if len(parts) < 3 or parts[0] != "git" or parts[1] != "commit":
+        raise ParseError(f"Line {line_number}: Expected a git command")
+
+    value_seen = False
+    for arg in parts[2:]:
+        if arg == "--amend":
+            raise ParseError(f"Line {line_number}: --amend is not allowed for string commits")
+        if arg in {"-m", "-m="}:
+            if value_seen:
+                raise ParseError(f"Line {line_number}: git commit accepts only one -m value")
+            value_seen = True
+            continue
+        raise ParseError(f"Line {line_number}: Unexpected git commit argument: {arg}")
+
+    if not value_seen:
+        raise ParseError(f"Line {line_number}: git commit -m needs a value")
 
 
 def _parse_cherry_pick(args: list[str], line_number: int) -> CherryPick | CherryPickRange:
@@ -737,6 +791,26 @@ def _split_statement_separators(text: str) -> list[str]:
 def _is_multiline_alias_start(text: str) -> bool:
     stripped = text.strip()
     return stripped.startswith("git config alias.") and _has_unclosed_single_quote(text)
+
+
+def _is_triple_commit_string_start(text: str) -> bool:
+    return _triple_commit_string_start(text) is not None
+
+
+def _has_closed_triple_commit_string(text: str) -> bool:
+    message_start = _triple_commit_string_start(text)
+    if message_start is None:
+        return False
+    return text.find('"""', message_start + 3) != -1
+
+
+def _triple_commit_string_start(text: str) -> int | None:
+    message_start = _commit_message_start(text)
+    if message_start is None:
+        return None
+    if text.startswith('"""', message_start):
+        return message_start
+    return None
 
 
 def _has_unclosed_single_quote(text: str) -> bool:

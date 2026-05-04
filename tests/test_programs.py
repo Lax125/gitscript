@@ -28,6 +28,26 @@ class ProgramTests(unittest.TestCase):
         self.assertEqual(output, 'A#B "C" \\ D\n')
         self.assertEqual(repo.branches["main"].value, ord("A"))
 
+    def test_triple_quoted_multiline_strings(self):
+        repo, output = run_program(
+            '''\
+git tag root
+git commit -m """this is a
+multiline string and " does not need to be escaped
+""" # trailing newline is included
+git log root..HEAD
+git commit -m """no trailing newline"""
+git log HEAD~19..HEAD
+'''
+        )
+
+        self.assertEqual(
+            output,
+            'this is a\nmultiline string and " does not need to be escaped\n\n'
+            "no trailing newline\n",
+        )
+        self.assertEqual(repo.branches["main"].value, ord("n"))
+
     def test_integer_commit_input_amend_show_and_reset(self):
         repo, output = run_program(
             """
@@ -62,6 +82,9 @@ class ProgramTests(unittest.TestCase):
 
         with self.assertRaises(ParseError):
             parse('git commit --amend -m "\n')
+
+        with self.assertRaises(ParseError):
+            parse('git commit --amend -m """unsafe"""')
 
     def test_hello_world_readme_example(self):
         repo, output = run_program(

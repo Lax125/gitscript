@@ -78,14 +78,29 @@ class ParserTests(unittest.TestCase):
         self.assertIsInstance(statements[0], CommitString)
         self.assertIsNone(statements[0].value)
 
+    def test_parse_triple_quoted_commit_strings(self):
+        statements = parse(
+            'git commit -m """this is a\n'
+            'multiline string and " does not need to be escaped\n'
+            '""" # trailing newline is included\n'
+            'git commit -m """no trailing newline"""'
+        )
+
+        self.assertIsInstance(statements[0], CommitString)
+        self.assertEqual(
+            statements[0].value,
+            'this is a\nmultiline string and " does not need to be escaped\n',
+        )
+        self.assertIsInstance(statements[1], CommitString)
+        self.assertEqual(statements[1].value, "no trailing newline")
+
     def test_commit_message_option_accepts_space_and_equals_forms(self):
         statements = parse(
-            """
-            git commit -m 42
-            git commit -m=43
-            git commit -m "forty four"
-            git commit -m="forty five"
-            """
+            "git commit -m 42\n"
+            "git commit -m=43\n"
+            'git commit -m "forty four"\n'
+            'git commit -m="forty five"\n'
+            'git commit -m="""equals form"""\n'
         )
 
         self.assertIsInstance(statements[0], Commit)
@@ -96,6 +111,8 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(statements[2].value, "forty four")
         self.assertIsInstance(statements[3], CommitString)
         self.assertEqual(statements[3].value, "forty five")
+        self.assertIsInstance(statements[4], CommitString)
+        self.assertEqual(statements[4].value, "equals form")
 
     def test_quoted_numeric_commit_message_is_a_string(self):
         statements = parse('git commit -m "42"')
@@ -376,6 +393,12 @@ class ParserTests(unittest.TestCase):
 
         with self.assertRaises(ParseError):
             parse("<<<<<<< a\n    git checkout a\n")
+
+        with self.assertRaises(IncompleteInput):
+            parse_repl('git commit -m """unfinished\nstring')
+
+        with self.assertRaises(ParseError):
+            parse('git commit -m """unfinished\nstring')
 
     def test_repl_parse_accepts_complete_single_statement(self):
         statements = parse_repl("git commit -m 5")

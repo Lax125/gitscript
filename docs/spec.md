@@ -270,6 +270,32 @@ Same as above, but inline.
 
 ---
 
+### `git commit -m """string"""`
+
+```gitscript
+git commit -m """this is a multiline string
+and " does not need to be escaped"""
+
+git commit -m """
+this is also a multiline string
+but with a newline at the start and at the end
+"""
+```
+
+Stores a literal multiline string as a sequence of commits, one per character.
+
+Triple-quoted strings:
+
+* may span multiple source lines
+* may contain unescaped `"` characters
+* may contain `&&` without creating statement separators
+* may be written with `-m """..."""` or `-m="""..."""`
+* do not allow `--amend`
+
+The string contains exactly the characters between the opening and closing `"""`.
+
+---
+
 ### `git reset`
 
 ```gitscript
