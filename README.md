@@ -71,10 +71,10 @@ git checkout -b one
 git commit 1
 
 git checkout counter
-git merge -s >
+git merge -s gt
 <<<<<<< counter
     git show
-    git cherry-pick one -s=-
+    git cherry-pick one -s=sub
     git merge --continue
 =======
     git show

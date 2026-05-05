@@ -14,14 +14,14 @@ git branch b one
 git branch next root
 
 # Emit a, advance (a, b) to (b, a + b), and count down.
-git merge -s >
+git merge -s gt
 <<<<<<< remaining
     git checkout sequence
     git cherry-pick a
 
     git checkout next
     git reset a
-    git cherry-pick b -s=+
+    git cherry-pick b -s=add
 
     git checkout a
     git reset b
@@ -29,7 +29,7 @@ git merge -s >
     git reset next
 
     git checkout remaining
-    git cherry-pick one -s=-
+    git cherry-pick one -s=sub
     git merge --continue
 =======
     git merge --abort

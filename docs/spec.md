@@ -312,8 +312,8 @@ Moves the current branch to the specified commit.
 ### `git cherry-pick`
 
 ```gitscript
-git cherry-pick <commit-ref> [-s <strategy>]
-git cherry-pick <commit-range> [-s <strategy>]
+git cherry-pick <commit-ref> [-s ltstrategy>]
+git cherry-pick <commit-range> [-s ltstrategy>]
 ```
 
 Creates new commits from existing commits.
@@ -328,7 +328,7 @@ Strategies combine:
 
 For a range with a strategy, the strategy is applied as a reduction. Each new commit becomes the next `ours` value.
 
-Example: cherry-picking values `[1, 2, 3]` onto a current value of `5` with `-s=+` creates commits `[6, 8, 11]`.
+Example: cherry-picking values `[1, 2, 3]` onto a current value of `5` with `-s=add` creates commits `[6, 8, 11]`.
 
 #### Value Selection
 
@@ -339,27 +339,27 @@ Example: cherry-picking values `[1, 2, 3]` onto a current value of `5` with `-s=
 
 #### Arithmetic
 
-* `+`
-* `-`
-* `*`
-* `/` (integer division)
-* `%`
+* `add`
+* `sub`
+* `mul`
+* `div` (integer division)
+* `mod`
 
 #### Comparison (returns `0` or `1`)
 
-* `>`
-* `<`
-* `>=`
-* `<=`
-* `==`
-* `!=`
+* `gt`
+* `lt`
+* `gte`
+* `lte`
+* `eq`
+* `neq`
 
 ---
 
 ### `git merge`
 
 ```gitscript
-git merge [-s <condition>] [<label>]
+git merge [-s ltcondition>] [<label>]
 git merge --continue [<label>]
 git merge --abort [<label>]
 ```
@@ -370,24 +370,24 @@ Controls merge-conflict blocks.
 
 The optional positional `<label>` names the merge block. This uses the argument position that real Git uses for the commit being merged.
 
-If no condition is specified, the condition is `==`.
+If no condition is specified, the condition is `eq`.
 
 #### Conditions
 
 Conditions are separate from value-combining cherry-pick strategies:
 
-* `>`: first commit value is greater than second commit value
-* `<`: first commit value is less than second commit value
-* `>=`: first commit value is greater than or equal to second commit value
-* `<=`: first commit value is less than or equal to second commit value
-* `==`: first commit value equals second commit value
-* `!=`: first commit value does not equal second commit value
+* `gt`: first commit value is greater than second commit value
+* `lt`: first commit value is less than second commit value
+* `gte`: first commit value is greater than or equal to second commit value
+* `lte`: first commit value is less than or equal to second commit value
+* `eq`: first commit value equals second commit value
+* `neq`: first commit value does not equal second commit value
 * `is`: both commit references resolve to the exact same commit object
 
 #### Execution
 
 ```gitscript
-git merge [-s <condition>] [<label>]
+git merge [-s ltcondition>] [<label>]
 <<<<<<< A
     ...
 =======
@@ -501,7 +501,7 @@ Exits the current execution block early.
 GitScript uses merge conflict syntax for control flow:
 
 ```gitscript
-git merge [-s <condition>] [<label>]
+git merge [-s ltcondition>] [<label>]
 <<<<<<< A
     ...
 =======
@@ -588,7 +588,7 @@ Alias expansion happens while parsing the command being executed, using aliases 
 ### Functions
 
 ```gitscript
-git config alias.function_name [-i <name>]... [-s <name>]... [-l <name>]... [-b <name>]... [-p <name>]... [-t <name>]... [-r <name>]... [-c <name>]... [-o <name>]... '![statement]...'
+git config alias.function_name [-i <name>]... [-s ltname>]... [-l <name>]... [-b <name>]... [-p <name>]... [-t <name>]... [-r <name>]... [-c <name>]... [-o <name>]... '![statement]...'
 ```
 
 Defines a function. A function body is an ordered list of zero or more statements. When `git function_name` is executed, GitScript executes those statements in order.
@@ -599,7 +599,7 @@ Example:
 
 ```gitscript
 git config alias.dec '!
-  git cherry-pick one -s=-
+  git cherry-pick one -s=sub
   git show
 '
 ```
@@ -609,7 +609,7 @@ This defines `git dec` as a two-statement function.
 The same function can also be written with the first and last statements adjacent to the quotes:
 
 ```gitscript
-git config alias.dec '!git cherry-pick one -s=- && git show'
+git config alias.dec '!git cherry-pick one -s=sub && git show'
 ```
 
 #### Function Body Validation
@@ -678,7 +678,7 @@ A parameter reference can appear anywhere a value of that parameter's type is ex
 Parameter types:
 
 * `-i <name>`: integer literal. `true` and `false` are accepted as integer literals with values `1` and `0`
-* `-s <name>`: string literal
+* `-s ltname>`: string literal
 * `-l <name>`: label. The argument must be a valid name that does not currently refer to an existing branch or tag in the caller's frame. This is useful for functions that create branches or tags in the caller's frame.
 * `-b <name>`: existing unprotected branch. The argument must name a branch that exists when the function is called. `main` and the caller's current branch cannot be passed as `-b`.
 * `-p <name>`: existing protected branch. The argument must name a branch that exists when the function is called. `main` and the caller's current branch can be passed as `-p`, and the branch cannot be deleted through the parameter inside the function.
@@ -826,7 +826,7 @@ git commit 1
 git show
 ```
 
-A merge-conflict control structure is one statement for this purpose. The `git merge [-s <condition>] [<label>]` line and its corresponding conflict markers and blocks stay together as a single statement, even though the statement spans multiple lines.
+A merge-conflict control structure is one statement for this purpose. The `git merge [-s ltcondition>] [<label>]` line and its corresponding conflict markers and blocks stay together as a single statement, even though the statement spans multiple lines.
 
 Lexically, newlines, `&&`, and merge-conflict markers are statement separators.
 
@@ -841,9 +841,9 @@ This means the inside of a conflict block can use `&&` between ordinary statemen
 Example:
 
 ```gitscript
-git merge -s > loop
+git merge -s gt loop
 <<<<<<< counter
-    git cherry-pick one -s=- && git merge --continue loop
+    git cherry-pick one -s=sub && git merge --continue loop
 =======
     git merge --abort loop
 >>>>>>> root

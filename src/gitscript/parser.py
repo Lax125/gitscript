@@ -94,8 +94,8 @@ def _prepare_lines(raw_lines: list[str], allow_incomplete: bool) -> list[_Line]:
                 collected.append(raw_lines[i].rstrip("\n"))
             lines.append(_Line(line_number, "\n".join(collected)))
         else:
-            parts = _split_statement_separators(text)
-            if len(parts) > 1 and any(_is_conflict_marker(part.strip()) for part in parts):
+            parts = _split_statement_separators(text, line_number)
+            if len(parts) > 1 and any(_line_starts_with(part, line_number, _CONFLICT_MARKER_KINDS) for part in parts):
                 raise ParseError(f"Line {line_number}: Conflict markers cannot share a line with &&")
             lines.extend(_Line(line_number, part) for part in parts)
 
@@ -146,22 +146,22 @@ class _Parser:
             raise self._error(line, f"Unexpected control-flow marker: {line.text.strip()}")
         return statements
 
-    def _parse_block(self, stop_markers: tuple[str, ...] = ()) -> list[Statement]:
+    def _parse_block(self, stop_markers: tuple[TokenKind, ...] = ()) -> list[Statement]:
         statements: list[Statement] = []
 
         while (line := self._current()) is not None:
-            stripped = line.text.strip()
-            if not stripped or _is_comment(stripped):
+            first_kind = _first_token_kind(line.text, line.number)
+            if first_kind is None:
                 self.index += 1
                 continue
 
-            if any(stripped.startswith(marker) for marker in stop_markers):
+            if first_kind in stop_markers:
                 break
 
-            if stripped.startswith("<<<<<<<"):
+            if first_kind == TokenKind.CONFLICT_START:
                 raise self._error(line, "Conflict block must be preceded by git merge")
 
-            if stripped.startswith(("=======", ">>>>>>>")):
+            if first_kind in {TokenKind.CONFLICT_MIDDLE, TokenKind.CONFLICT_END}:
                 break
 
             statement = _parse_statement(line)
@@ -173,7 +173,7 @@ class _Parser:
                     if self.allow_incomplete:
                         raise IncompleteInput(f"Line {line.number}: git merge needs a conflict block")
                     raise self._error(line, "git merge needs a conflict block")
-                if not conflict_start.text.strip().startswith("<<<<<<<"):
+                if not _line_starts_with(conflict_start.text, conflict_start.number, {TokenKind.CONFLICT_START}):
                     raise self._error(conflict_start, "git merge must be followed by a conflict block")
                 statements.append(self._parse_conflict(conflict_start, statement.condition, statement.label))
             else:
@@ -182,36 +182,32 @@ class _Parser:
         return statements
 
     def _parse_conflict(self, start: _Line, condition: Condition, label: str | None) -> Conflict:
-        ref_a_text = start.text.strip()[7:].strip()
-        if not ref_a_text:
-            raise self._error(start, "Conflict start marker needs a commit reference")
+        ref_a = _parse_conflict_marker_ref(start, TokenKind.CONFLICT_START, "Conflict start marker")
 
         self.index += 1
-        block_a = self._parse_block(("=======",))
+        block_a = self._parse_block((TokenKind.CONFLICT_MIDDLE,))
 
         middle = self._current()
-        if middle is None or not middle.text.strip().startswith("======="):
+        if middle is None or not _line_starts_with(middle.text, middle.number, {TokenKind.CONFLICT_MIDDLE}):
             if self.allow_incomplete and middle is None:
                 raise IncompleteInput(f"Line {start.number}: Conflict block is missing =======")
             raise self._error(start, "Conflict block is missing =======")
 
         self.index += 1
-        block_b = self._parse_block((">>>>>>>",))
+        block_b = self._parse_block((TokenKind.CONFLICT_END,))
 
         end = self._current()
-        if end is None or not end.text.strip().startswith(">>>>>>>"):
+        if end is None or not _line_starts_with(end.text, end.number, {TokenKind.CONFLICT_END}):
             if self.allow_incomplete and end is None:
                 raise IncompleteInput(f"Line {start.number}: Conflict block is missing >>>>>>>")
             raise self._error(start, "Conflict block is missing >>>>>>>")
 
-        ref_b_text = end.text.strip()[7:].strip()
-        if not ref_b_text:
-            raise self._error(end, "Conflict end marker needs a commit reference")
+        ref_b = _parse_conflict_marker_ref(end, TokenKind.CONFLICT_END, "Conflict end marker")
 
         self.index += 1
         return Conflict(
-            _parse_ref(ref_a_text, start.number),
-            _parse_ref(ref_b_text, end.number),
+            ref_a,
+            ref_b,
             block_a,
             block_b,
             condition,
@@ -225,8 +221,7 @@ class _Parser:
 
     def _skip_ignored_lines(self) -> None:
         while (line := self._current()) is not None:
-            stripped = line.text.strip()
-            if stripped and not _is_comment(stripped):
+            if _first_token_kind(line.text, line.number) is not None:
                 return
             self.index += 1
 
@@ -276,8 +271,160 @@ def _argument_tokens(tokens: list[Token]) -> list[Token]:
     return arguments
 
 
-def _raw_token_values(tokens: list[Token]) -> list[str]:
-    return [token.value for token in tokens]
+def _combine_tokens(tokens: list[Token]) -> Token:
+    if len(tokens) == 1:
+        return tokens[0]
+
+    quoted = next((token for token in tokens if token.quoted), None)
+    return Token(
+        tokens[0].kind,
+        "".join(token.value for token in tokens),
+        tokens[0].line,
+        tokens[0].column,
+        quoted is not None,
+        quoted.quote if quoted is not None else None,
+        tokens[0].group,
+    )
+
+
+class _TokenCursor:
+    def __init__(self, tokens: list[Token], line_number: int):
+        self.tokens = tokens
+        self.line_number = line_number
+        self.index = 0
+
+    @property
+    def done(self) -> bool:
+        return self.index >= len(self.tokens)
+
+    def peek(self) -> Token | None:
+        if self.done:
+            return None
+        return self.tokens[self.index]
+
+    def next(self) -> Token | None:
+        token = self.peek()
+        if token is not None:
+            self.index += 1
+        return token
+
+    def accept(self, kind: TokenKind, value: str | None = None) -> Token | None:
+        token = self.peek()
+        if token is None or token.kind != kind:
+            return None
+        if value is not None and token.value != value:
+            return None
+        self.index += 1
+        return token
+
+    def expect(self, kind: TokenKind, context: str, value: str | None = None) -> Token:
+        token = self.accept(kind, value)
+        if token is not None:
+            return token
+        expected = value if value is not None else _token_kind_name(kind)
+        raise ParseError(f"Line {self.line_number}: {context} expects {expected}")
+
+    def expect_any(self, kinds: set[TokenKind] | frozenset[TokenKind], context: str) -> Token:
+        token = self.peek()
+        if token is not None and token.kind in kinds:
+            self.index += 1
+            return token
+        expected = " or ".join(_token_kind_name(kind) for kind in sorted(kinds, key=lambda item: item.name))
+        raise ParseError(f"Line {self.line_number}: {context} expects {expected}")
+
+    def rest(self) -> list[Token]:
+        rest = self.tokens[self.index:]
+        self.index = len(self.tokens)
+        return rest
+
+    def expect_done(self, command: str) -> None:
+        if not self.done:
+            raise ParseError(f"Line {self.line_number}: Unexpected {command} argument: {self.peek().value}")
+
+    def consume_argument(self, context: str) -> Token:
+        token = self.peek()
+        if token is None:
+            raise ParseError(f"Line {self.line_number}: {context} needs an argument")
+
+        group = token.group
+        grouped: list[Token] = []
+        while self.peek() is not None and self.peek().group == group:
+            grouped.append(self.next())
+        return _combine_tokens(grouped)
+
+    def remaining_arguments(self) -> list[Token]:
+        args = _argument_tokens(self.tokens[self.index:])
+        self.index = len(self.tokens)
+        return args
+
+
+def _token_kind_name(kind: TokenKind) -> str:
+    return kind.name.lower().replace("_", " ")
+
+
+_COMMANDS = {
+    TokenKind.COMMIT,
+    TokenKind.BRANCH,
+    TokenKind.CHECKOUT,
+    TokenKind.CONFIG,
+    TokenKind.RESET,
+    TokenKind.MERGE,
+    TokenKind.CHERRY_PICK,
+    TokenKind.REVERT,
+    TokenKind.REBASE,
+    TokenKind.TAG,
+    TokenKind.SHOW,
+    TokenKind.LOG,
+    TokenKind.REV_LIST,
+}
+
+_PARAMETER_TYPE_OPTIONS = frozenset({"-i", "-s", "-l", "-b", "-p", "-t", "-r", "-c", "-o"})
+
+_OPERATOR_BY_KIND = {
+    TokenKind.STRATEGY_OURS: Operator.OURS,
+    TokenKind.STRATEGY_THEIRS: Operator.THEIRS,
+    TokenKind.STRATEGY_MIN: Operator.MIN,
+    TokenKind.STRATEGY_MAX: Operator.MAX,
+    TokenKind.STRATEGY_ADD: Operator.ADD,
+    TokenKind.STRATEGY_SUBTRACT: Operator.SUBTRACT,
+    TokenKind.STRATEGY_MULTIPLY: Operator.MULTIPLY,
+    TokenKind.STRATEGY_DIVIDE: Operator.DIVIDE,
+    TokenKind.STRATEGY_MODULO: Operator.MODULO,
+    TokenKind.STRATEGY_GT: Operator.GT,
+    TokenKind.STRATEGY_LT: Operator.LT,
+    TokenKind.STRATEGY_EQ: Operator.EQ,
+    TokenKind.STRATEGY_NEQ: Operator.NEQ,
+    TokenKind.STRATEGY_GTE: Operator.GTE,
+    TokenKind.STRATEGY_LTE: Operator.LTE,
+}
+
+_CONDITION_BY_KIND = {
+    TokenKind.STRATEGY_GT: Condition.GT,
+    TokenKind.STRATEGY_LT: Condition.LT,
+    TokenKind.STRATEGY_EQ: Condition.EQ,
+    TokenKind.STRATEGY_NEQ: Condition.NEQ,
+    TokenKind.STRATEGY_GTE: Condition.GTE,
+    TokenKind.STRATEGY_LTE: Condition.LTE,
+    TokenKind.CONDITION_IS: Condition.IS,
+}
+
+_CONFLICT_MARKER_KINDS = frozenset({
+    TokenKind.CONFLICT_START,
+    TokenKind.CONFLICT_MIDDLE,
+    TokenKind.CONFLICT_END,
+})
+
+
+def _first_token_kind(text: str, line_number: int) -> TokenKind | None:
+    tokens = _lex_statement(_strip_comment(text).strip(), line_number)
+    if not tokens:
+        return None
+    return tokens[0].kind
+
+
+def _line_starts_with(text: str, line_number: int, kinds: set[TokenKind] | frozenset[TokenKind]) -> bool:
+    first_kind = _first_token_kind(text, line_number)
+    return first_kind in kinds if first_kind is not None else False
 
 
 def _parse_statement(line: _Line) -> Statement | _MergeStart:
@@ -286,157 +433,168 @@ def _parse_statement(line: _Line) -> Statement | _MergeStart:
         return triple_commit
 
     raw = _strip_comment(line.text).strip()
+    tokens = _lex_statement(raw, line.number)
 
-    if raw == "exit":
+    if len(tokens) == 1 and tokens[0].kind == TokenKind.EXIT:
         return Exit()
 
-    tokens = _argument_tokens(_lex_statement(raw, line.number))
-    if len(tokens) < 2 or tokens[0].value != "git":
+    stream = _TokenCursor(tokens, line.number)
+    if not stream.accept(TokenKind.GIT):
         raise ParseError(f"Line {line.number}: Expected a git command")
+    command = stream.expect_any(_COMMANDS | {TokenKind.IDENTIFIER}, "git command")
 
-    command = tokens[1].value
-    args = tokens[2:]
-
-    if command == "commit":
-        return _parse_commit(args, line.number)
-    if command == "branch":
-        return _parse_branch(_token_values(args), line.number)
-    if command == "checkout":
-        arg_values = _token_values(args)
-        if len(arg_values) in {2, 3} and arg_values[0] == "-b":
-            return Checkout(
-                _parse_name(arg_values[1], line.number, "branch"),
-                _parse_ref(arg_values[2], line.number) if len(arg_values) == 3 else HeadRef(),
-            )
-        _expect_count(arg_values, 1, line.number, "git checkout")
-        return Checkout(_parse_name(arg_values[0], line.number, "branch"))
-    if command == "config":
-        return _parse_config(_token_values(args), line.number)
-    if command == "reset":
-        arg_values = _token_values(args)
-        _expect_count(arg_values, 1, line.number, "git reset")
-        return Reset(_parse_ref(arg_values[0], line.number))
-    if command == "merge":
-        return _parse_merge(_token_values(args), line.number)
-    if command == "cherry-pick":
-        return _parse_cherry_pick(_token_values(args), line.number)
-    if command == "revert":
-        arg_values = _token_values(args)
-        _expect_count(arg_values, 1, line.number, "git revert")
-        target = _parse_range_or_ref(arg_values[0], line.number)
+    if command.kind == TokenKind.COMMIT:
+        return _parse_commit(stream)
+    if command.kind == TokenKind.BRANCH:
+        return _parse_branch(stream)
+    if command.kind == TokenKind.CHECKOUT:
+        return _parse_checkout(stream)
+    if command.kind == TokenKind.CONFIG:
+        return _parse_config(stream)
+    if command.kind == TokenKind.RESET:
+        ref = _parse_required_ref_argument(stream, "git reset")
+        stream.expect_done("git reset")
+        return Reset(ref)
+    if command.kind == TokenKind.MERGE:
+        return _parse_merge(stream)
+    if command.kind == TokenKind.CHERRY_PICK:
+        return _parse_cherry_pick(stream)
+    if command.kind == TokenKind.REVERT:
+        target = _parse_required_range_or_ref_argument(stream, "git revert")
+        stream.expect_done("git revert")
         if isinstance(target, CommitRange):
             return RevertRange(target)
         return Revert(target)
-    if command == "rebase":
-        arg_values = _token_values(args)
-        _expect_count(arg_values, 1, line.number, "git rebase")
-        return Rebase(_parse_ref(arg_values[0], line.number))
-    if command == "tag":
-        return _parse_tag(_token_values(args), line.number)
-    if command == "show":
-        arg_values = _token_values(args)
-        _expect_count(arg_values, (0, 1), line.number, "git show")
-        return Show(_parse_ref(arg_values[0], line.number) if arg_values else HeadRef())
-    if command == "log":
-        target, limit, reverse = _parse_list_args(_token_values(args), line.number, "git log")
+    if command.kind == TokenKind.REBASE:
+        ref = _parse_required_ref_argument(stream, "git rebase")
+        stream.expect_done("git rebase")
+        return Rebase(ref)
+    if command.kind == TokenKind.TAG:
+        return _parse_tag(stream)
+    if command.kind == TokenKind.SHOW:
+        ref = _parse_optional_ref_argument(stream)
+        stream.expect_done("git show")
+        return Show(ref if ref is not None else HeadRef())
+    if command.kind == TokenKind.LOG:
+        target, limit, reverse = _parse_list_args(stream, "git log")
         if isinstance(target, CommitRange):
             return LogRange(target, limit, reverse)
         return Log(target, limit, reverse)
-    if command == "rev-list":
-        target, limit, reverse = _parse_list_args(_token_values(args), line.number, "git rev-list")
+    if command.kind == TokenKind.REV_LIST:
+        target, limit, reverse = _parse_list_args(stream, "git rev-list")
         if isinstance(target, CommitRange):
             return RevListRange(target, limit, reverse)
         return RevList(target, limit, reverse)
 
-    return AliasCall(command, _token_values(args))
+    return AliasCall(command.value, _token_values(stream.rest()))
 
 
-def _parse_branch(args: list[str], line_number: int) -> Statement:
-    if not args:
+def _parse_branch(stream: _TokenCursor) -> Statement:
+    if stream.done:
         return ListBranches()
 
-    if args and args[0] == "-d":
-        if len(args) < 2:
-            raise ParseError(f"Line {line_number}: git branch -d needs at least one branch name")
-        return DeleteBranches([_parse_name(name, line_number, "branch") for name in args[1:]])
+    if stream.accept(TokenKind.OPTION, "-d"):
+        names = []
+        while not stream.done:
+            names.append(_parse_name_token(stream.expect(TokenKind.IDENTIFIER, "git branch -d"), "branch"))
+        if not names:
+            raise ParseError(f"Line {stream.line_number}: git branch -d needs at least one branch name")
+        return DeleteBranches(names)
 
-    _expect_count(args, (1, 2), line_number, "git branch")
-    return Branch(_parse_name(args[0], line_number, "branch"), _parse_ref(args[1], line_number) if len(args) == 2 else HeadRef())
-
-
-def _parse_tag(args: list[str], line_number: int) -> Statement:
-    if args and args[0] == "-d":
-        if len(args) < 2:
-            raise ParseError(f"Line {line_number}: git tag -d needs at least one tag name")
-        return DeleteTags([_parse_name(name, line_number, "tag") for name in args[1:]])
-
-    _expect_count(args, 1, line_number, "git tag")
-    return Tag(_parse_name(args[0], line_number, "tag"))
+    name = _parse_name_token(stream.expect(TokenKind.IDENTIFIER, "git branch"), "branch")
+    ref = _parse_optional_ref_argument(stream)
+    stream.expect_done("git branch")
+    return Branch(name, ref if ref is not None else HeadRef())
 
 
-def _parse_config(args: list[str], line_number: int) -> Statement:
-    if not args:
-        raise ParseError(f"Line {line_number}: git config expects a key")
+def _parse_checkout(stream: _TokenCursor) -> Statement:
+    if stream.accept(TokenKind.OPTION, "-b"):
+        name = _parse_name_token(stream.expect(TokenKind.IDENTIFIER, "git checkout -b"), "branch")
+        ref = _parse_optional_ref_argument(stream)
+        stream.expect_done("git checkout")
+        return Checkout(name, ref if ref is not None else HeadRef())
 
-    if args[0].startswith("alias."):
-        return _parse_alias_config(args, line_number)
+    name = _parse_name_token(stream.expect(TokenKind.IDENTIFIER, "git checkout"), "branch")
+    stream.expect_done("git checkout")
+    return Checkout(name)
 
-    _expect_count(args, 2, line_number, "git config")
 
-    key, value = args
-    if key == "commit.verbose":
-        return Config(key, _parse_integer_literal(value, line_number, "commit.verbose"))
+def _parse_tag(stream: _TokenCursor) -> Statement:
+    if stream.accept(TokenKind.OPTION, "-d"):
+        names = []
+        while not stream.done:
+            names.append(_parse_name_token(stream.expect(TokenKind.IDENTIFIER, "git tag -d"), "tag"))
+        if not names:
+            raise ParseError(f"Line {stream.line_number}: git tag -d needs at least one tag name")
+        return DeleteTags(names)
 
-    if key == "merge.verbosity":
-        try:
-            verbosity = int(value)
-        except ValueError as exc:
-            raise ParseError(f"Line {line_number}: merge.verbosity must be 0, 1, or 2") from exc
+    name = _parse_name_token(stream.expect(TokenKind.IDENTIFIER, "git tag"), "tag")
+    stream.expect_done("git tag")
+    return Tag(name)
+
+
+def _parse_config(stream: _TokenCursor) -> Statement:
+    key = stream.expect(TokenKind.CONFIG_KEY, "git config")
+    if key.value.startswith("alias."):
+        return _parse_alias_config(key, stream)
+
+    value = stream.expect(TokenKind.INT_LITERAL, "git config value")
+    stream.expect_done("git config")
+    if key.value == "commit.verbose":
+        return Config(key.value, _parse_integer_literal(value.value, stream.line_number, "commit.verbose"))
+
+    if key.value == "merge.verbosity":
+        verbosity = _parse_integer_literal(value.value, stream.line_number, "merge.verbosity")
         if verbosity not in {0, 1, 2}:
-            raise ParseError(f"Line {line_number}: merge.verbosity must be 0, 1, or 2")
-        return Config(key, verbosity)
+            raise ParseError(f"Line {stream.line_number}: merge.verbosity must be 0, 1, or 2")
+        return Config(key.value, verbosity)
 
-    raise ParseError(f"Line {line_number}: Unknown config key: {key}")
+    raise ParseError(f"Line {stream.line_number}: Unknown config key: {key.value}")
 
 
-def _parse_alias_config(args: list[str], line_number: int) -> DefineAlias | DefineFunction:
-    key = args[0]
-    name = key[len("alias."):]
-    _parse_name(name, line_number, "alias")
+def _parse_alias_config(key: Token, stream: _TokenCursor) -> DefineAlias | DefineFunction:
+    name = key.value[len("alias."):]
+    _parse_name(name, stream.line_number, "alias")
+    args = stream.remaining_arguments()
 
-    if len(args) < 2:
-        raise ParseError(f"Line {line_number}: git config alias needs a value")
+    if len(args) < 1:
+        raise ParseError(f"Line {stream.line_number}: git config alias needs a value")
 
     parameters: list[Parameter] = []
-    i = 1
+    i = 0
     while i < len(args) - 1:
         kind = args[i]
-        if kind not in {"-i", "-s", "-l", "-b", "-p", "-t", "-r", "-c", "-o"}:
-            raise ParseError(f"Line {line_number}: Unknown function parameter type: {kind}")
-        parameter_text = args[i + 1]
-        parameter_name, default = _parse_parameter(parameter_text, kind, line_number)
-        parameters.append(Parameter(kind, parameter_name, default))
+        if kind.kind != TokenKind.OPTION or kind.value not in _PARAMETER_TYPE_OPTIONS:
+            raise ParseError(f"Line {stream.line_number}: Unknown function parameter type: {kind.value}")
+        parameter = args[i + 1]
+        parameter_name, default = _parse_parameter(parameter, kind.value, stream.line_number)
+        parameters.append(Parameter(kind.value, parameter_name, default))
         i += 2
 
     if i != len(args) - 1:
-        raise ParseError(f"Line {line_number}: Function parameter needs a name")
+        raise ParseError(f"Line {stream.line_number}: Function parameter needs a name")
 
-    value = args[-1]
+    value = args[-1].value
     if value.startswith("!"):
         return DefineFunction(name, parameters, value[1:])
 
     if parameters:
-        raise ParseError(f"Line {line_number}: Shortform aliases cannot declare parameters")
+        raise ParseError(f"Line {stream.line_number}: Shortform aliases cannot declare parameters")
     return DefineAlias(name, value)
 
 
-def _parse_parameter(text: str, kind: str, line_number: int) -> tuple[str, str | None]:
-    if "=" in text:
-        name, default = text.split("=", 1)
+def _parse_parameter(token: Token, kind: str, line_number: int) -> tuple[str, str | None]:
+    if "=" in token.value:
+        name_text, default = token.value.split("=", 1)
     else:
-        name, default = text, None
+        name_text = token.value
+        default = None
 
-    _parse_name(name, line_number, "parameter")
+    parts = _lex_statement(name_text, line_number)
+    cursor = _TokenCursor(parts, line_number)
+    name = _parse_name_token(cursor.expect(TokenKind.IDENTIFIER, "function parameter"), "parameter")
+    cursor.expect_done("function parameter")
+
     if default is not None:
         default = _validate_parameter_default(kind, default, line_number)
     return name, default
@@ -461,49 +619,46 @@ def _validate_parameter_default(kind: str, value: str, line_number: int) -> str:
     raise ParseError(f"Line {line_number}: Unknown function parameter type: {kind}")
 
 
-def _parse_commit(args: list[Token], line_number: int) -> Statement:
+def _parse_commit(stream: _TokenCursor) -> Statement:
     amend = False
     string_mode = False
     value: str | None = None
 
-    i = 0
-    while i < len(args):
-        arg = args[i].value
-        if arg == "--amend":
+    while not stream.done:
+        if stream.accept(TokenKind.OPTION, "--amend"):
             amend = True
-            i += 1
-        elif arg == "-m":
+            continue
+
+        if stream.accept(TokenKind.OPTION, "-m"):
             if string_mode or value is not None:
-                raise ParseError(f"Line {line_number}: git commit accepts only one value")
+                raise ParseError(f"Line {stream.line_number}: git commit accepts only one value")
             string_mode = True
-            if i + 1 < len(args):
-                value = args[i + 1].value
-                i += 2
+            if stream.accept(TokenKind.EQUALS):
+                if stream.done:
+                    value = ""
+                else:
+                    value = stream.consume_argument("git commit -m").value
             else:
-                i += 1
-        elif arg.startswith("-m="):
-            if string_mode or value is not None:
-                raise ParseError(f"Line {line_number}: git commit accepts only one value")
-            string_mode = True
-            value = arg[3:]
-            i += 1
-        elif arg.startswith("-") and args[i].kind != TokenKind.INT_LITERAL:
-            raise ParseError(f"Line {line_number}: Unexpected git commit argument: {arg}")
-        else:
-            if value is not None or string_mode:
-                raise ParseError(f"Line {line_number}: git commit accepts only one value")
-            value = arg
-            i += 1
+                if not stream.done:
+                    value = stream.consume_argument("git commit -m").value
+            continue
+
+        if stream.peek().kind == TokenKind.OPTION:
+            raise ParseError(f"Line {stream.line_number}: Unexpected git commit argument: {stream.peek().value}")
+
+        if value is not None or string_mode:
+            raise ParseError(f"Line {stream.line_number}: git commit accepts only one value")
+        value = stream.consume_argument("git commit").value
 
     if string_mode:
         if amend:
-            raise ParseError(f"Line {line_number}: --amend is not allowed for string commits")
+            raise ParseError(f"Line {stream.line_number}: --amend is not allowed for string commits")
         return CommitString(value)
 
     if value is None:
         return Commit(None, amend)
 
-    return Commit(_parse_integer_literal(value, line_number, "git commit"), amend)
+    return Commit(_parse_integer_literal(value, stream.line_number, "git commit"), amend)
 
 
 def _parse_triple_commit_string(text: str, line_number: int) -> CommitString | None:
@@ -545,82 +700,95 @@ def _validate_triple_commit_prefix(parts: list[str], line_number: int) -> None:
         raise ParseError(f"Line {line_number}: git commit -m needs a value")
 
 
-def _parse_cherry_pick(args: list[str], line_number: int) -> CherryPick | CherryPickRange:
-    if not args:
-        raise ParseError(f"Line {line_number}: git cherry-pick needs a commit reference or range")
-
+def _parse_cherry_pick(stream: _TokenCursor) -> CherryPick | CherryPickRange:
+    target = _parse_required_range_or_ref_argument(stream, "git cherry-pick")
     op = Operator.THEIRS
-    i = 1
-    target = _parse_range_or_ref(args[0], line_number)
-    while i < len(args):
-        arg = args[i]
-        if arg == "-s":
-            if i + 1 >= len(args):
-                raise ParseError(f"Line {line_number}: git cherry-pick -s needs a strategy")
-            op = _parse_operator(args[i + 1], line_number)
-            i += 2
-        elif arg.startswith("-s="):
-            op = _parse_operator(arg[3:], line_number)
-            i += 1
-        else:
-            raise ParseError(f"Line {line_number}: Unexpected git cherry-pick argument: {arg}")
+    while not stream.done:
+        if stream.accept(TokenKind.OPTION, "-s"):
+            stream.accept(TokenKind.EQUALS)
+            token = stream.peek()
+            if token is None:
+                raise ParseError(f"Line {stream.line_number}: git cherry-pick -s needs a strategy")
+            if token.kind not in _OPERATOR_BY_KIND:
+                raise ParseError(f"Line {token.line}: Unknown strategy: {token.value}")
+            op = _parse_operator_token(stream.next())
+            continue
+        raise ParseError(f"Line {stream.line_number}: Unexpected git cherry-pick argument: {stream.peek().value}")
 
     if isinstance(target, CommitRange):
         return CherryPickRange(target, op)
     return CherryPick(target, op)
 
 
-def _parse_merge(args: list[str], line_number: int) -> Statement | _MergeStart:
+def _parse_merge(stream: _TokenCursor) -> Statement | _MergeStart:
     condition = Condition.EQ
     label = None
-    i = 0
-    while i < len(args):
-        arg = args[i]
-        if arg == "--continue":
-            _expect_count(args, (1, 2), line_number, "git merge --continue")
-            return MergeContinue(_parse_merge_signal_label(args, line_number, "git merge --continue"))
-        if arg == "--abort":
-            _expect_count(args, (1, 2), line_number, "git merge --abort")
-            return MergeAbort(_parse_merge_signal_label(args, line_number, "git merge --abort"))
-        if arg == "-s":
-            if i + 1 >= len(args):
-                raise ParseError(f"Line {line_number}: git merge -s needs a condition")
-            condition = _parse_condition(args[i + 1], line_number)
-            i += 2
-        elif arg.startswith("-s="):
-            condition = _parse_condition(arg[3:], line_number)
-            i += 1
-        elif arg.startswith("-"):
-            raise ParseError(f"Line {line_number}: Unexpected git merge argument: {arg}")
-        else:
-            if label is not None:
-                raise ParseError(f"Line {line_number}: git merge accepts only one label")
-            label = arg
-            i += 1
+
+    if stream.accept(TokenKind.OPTION, "--continue"):
+        label = _parse_optional_label_argument(stream, "git merge --continue")
+        stream.expect_done("git merge --continue")
+        return MergeContinue(label)
+
+    if stream.accept(TokenKind.OPTION, "--abort"):
+        label = _parse_optional_label_argument(stream, "git merge --abort")
+        stream.expect_done("git merge --abort")
+        return MergeAbort(label)
+
+    while not stream.done:
+        if stream.accept(TokenKind.OPTION, "-s"):
+            stream.accept(TokenKind.EQUALS)
+            token = stream.peek()
+            if token is None:
+                raise ParseError(f"Line {stream.line_number}: git merge -s needs a condition")
+            if token.kind not in _CONDITION_BY_KIND:
+                raise ParseError(f"Line {token.line}: Unknown merge condition: {token.value}")
+            condition = _parse_condition_token(stream.next())
+            continue
+
+        if stream.peek().kind == TokenKind.OPTION:
+            raise ParseError(f"Line {stream.line_number}: Unexpected git merge argument: {stream.peek().value}")
+
+        if label is not None:
+            raise ParseError(f"Line {stream.line_number}: git merge accepts only one label")
+        label = _parse_merge_label(stream.consume_argument("git merge label"))
 
     return _MergeStart(condition, label)
 
 
-def _parse_merge_signal_label(args: list[str], line_number: int, command: str) -> str | None:
-    if len(args) == 1:
+def _parse_optional_label_argument(stream: _TokenCursor, command: str) -> str | None:
+    if stream.done:
         return None
-    if args[1].startswith("-"):
-        raise ParseError(f"Line {line_number}: Unexpected {command} argument: {args[1]}")
-    return args[1]
+    if stream.peek().kind == TokenKind.OPTION:
+        raise ParseError(f"Line {stream.line_number}: Unexpected {command} argument: {stream.peek().value}")
+    return _parse_merge_label(stream.consume_argument(command))
 
 
 def _parse_operator(text: str, line_number: int) -> Operator:
-    for op in Operator:
-        if op.value == text:
-            return op
+    tokens = _lex_statement(text, line_number)
+    if len(tokens) == 1 and tokens[0].kind in _OPERATOR_BY_KIND:
+        return _parse_operator_token(tokens[0])
     raise ParseError(f"Line {line_number}: Unknown strategy: {text}")
 
 
+def _parse_operator_token(token: Token) -> Operator:
+    try:
+        return _OPERATOR_BY_KIND[token.kind]
+    except KeyError as exc:
+        raise ParseError(f"Line {token.line}: Unknown strategy: {token.value}") from exc
+
+
 def _parse_condition(text: str, line_number: int) -> Condition:
-    for condition in Condition:
-        if condition.value == text:
-            return condition
+    tokens = _lex_statement(text, line_number)
+    if len(tokens) == 1 and tokens[0].kind in _CONDITION_BY_KIND:
+        return _parse_condition_token(tokens[0])
     raise ParseError(f"Line {line_number}: Unknown merge condition: {text}")
+
+
+def _parse_condition_token(token: Token) -> Condition:
+    try:
+        return _CONDITION_BY_KIND[token.kind]
+    except KeyError as exc:
+        raise ParseError(f"Line {token.line}: Unknown merge condition: {token.value}") from exc
 
 
 def _parse_name(text: str, line_number: int, kind: str) -> str:
@@ -637,53 +805,85 @@ def _parse_name(text: str, line_number: int, kind: str) -> str:
     return text
 
 
+def _parse_name_token(token: Token, kind: str) -> str:
+    if token.kind != TokenKind.IDENTIFIER:
+        raise ParseError(f"Line {token.line}: {kind} name expects identifier")
+    return _parse_name(token.value, token.line, kind)
+
+
+def _parse_merge_label(token: Token) -> str:
+    if token.kind in _OPERATOR_BY_KIND or token.kind in _CONDITION_BY_KIND:
+        raise ParseError(f"Line {token.line}: merge label name cannot be an operator")
+    if token.kind in {TokenKind.OPTION, TokenKind.EQUALS, TokenKind.TILDE, TokenKind.RANGE}:
+        raise ParseError(f"Line {token.line}: merge label name expects identifier")
+    if token.value == "HEAD":
+        raise ParseError(f"Line {token.line}: merge label name cannot be HEAD")
+    if token.value.startswith("-"):
+        raise ParseError(f"Line {token.line}: merge label name cannot start with -")
+    if any(char not in _NAME_CHARS for char in token.value):
+        raise ParseError(
+            f"Line {token.line}: merge label name may contain only A-Z, a-z, 0-9, -, _, and /"
+        )
+    return token.value
+
+
 def _parse_range_or_ref(text: str, line_number: int) -> Ref | CommitRange:
-    if ".." in text:
-        parts = text.split("..")
-        if len(parts) != 2 or not parts[0] or not parts[1]:
-            raise ParseError(f"Line {line_number}: Invalid commit range: {text}")
-        return CommitRange(_parse_ref(parts[0], line_number), _parse_ref(parts[1], line_number))
-    return _parse_ref(text, line_number)
+    tokens = _tokenize_ref(text, line_number)
+    stream = _TokenCursor(tokens, line_number)
+    left = _parse_ref_expr(stream)
+    if stream.accept(TokenKind.RANGE):
+        right = _parse_ref_expr(stream)
+        stream.expect_done("commit range")
+        return CommitRange(left, right)
+    stream.expect_done("commit reference")
+    return left
 
 
-def _parse_list_args(args: list[str], line_number: int, command: str) -> tuple[Ref | CommitRange, int | None, bool]:
+def _parse_required_ref_argument(stream: _TokenCursor, command: str) -> Ref:
+    token = stream.consume_argument(command)
+    return _parse_ref(token.value, stream.line_number)
+
+
+def _parse_optional_ref_argument(stream: _TokenCursor) -> Ref | None:
+    if stream.done:
+        return None
+    return _parse_required_ref_argument(stream, "commit reference")
+
+
+def _parse_required_range_or_ref_argument(stream: _TokenCursor, command: str) -> Ref | CommitRange:
+    token = stream.consume_argument(command)
+    return _parse_range_or_ref(token.value, stream.line_number)
+
+
+def _parse_list_args(stream: _TokenCursor, command: str) -> tuple[Ref | CommitRange, int | None, bool]:
     limit = None
     reverse = False
     target: Ref | CommitRange | None = None
 
-    i = 0
-    while i < len(args):
-        arg = args[i]
-        if arg == "--reverse":
+    while not stream.done:
+        if stream.accept(TokenKind.OPTION, "--reverse"):
             reverse = True
-            i += 1
-        elif arg == "-n":
-            if i + 1 >= len(args):
-                raise ParseError(f"Line {line_number}: {command} -n needs a limit")
-            limit = _parse_limit(args[i + 1], line_number, command)
-            i += 2
-        elif arg.startswith("-n="):
-            limit = _parse_limit(arg[3:], line_number, command)
-            i += 1
-        elif arg.startswith("-"):
-            raise ParseError(f"Line {line_number}: Unexpected {command} argument: {arg}")
-        else:
-            if target is not None:
-                raise ParseError(f"Line {line_number}: {command} accepts only one ref or range")
-            target = _parse_range_or_ref(arg, line_number)
-            i += 1
+            continue
+
+        if stream.accept(TokenKind.OPTION, "-n"):
+            stream.accept(TokenKind.EQUALS)
+            limit = _parse_limit_token(stream.expect(TokenKind.INT_LITERAL, f"{command} -n"), command)
+            continue
+
+        if stream.peek().kind == TokenKind.OPTION:
+            raise ParseError(f"Line {stream.line_number}: Unexpected {command} argument: {stream.peek().value}")
+
+        if target is not None:
+            raise ParseError(f"Line {stream.line_number}: {command} accepts only one ref or range")
+        target = _parse_range_or_ref(stream.consume_argument(command).value, stream.line_number)
 
     return target if target is not None else HeadRef(), limit, reverse
 
 
-def _parse_limit(text: str, line_number: int, command: str) -> int:
-    try:
-        limit = _parse_integer_literal(text, line_number, f"{command} -n")
-    except ValueError as exc:
-        raise ParseError(f"Line {line_number}: {command} -n needs a non-negative integer") from exc
-
+def _parse_limit_token(token: Token, command: str) -> int:
+    limit = _parse_integer_literal(token.value, token.line, f"{command} -n")
     if limit < 0:
-        raise ParseError(f"Line {line_number}: {command} -n needs a non-negative integer")
+        raise ParseError(f"Line {token.line}: {command} -n needs a non-negative integer")
     return limit
 
 
@@ -699,47 +899,62 @@ def _parse_integer_literal(text: str, line_number: int, context: str) -> int:
 
 
 def _parse_ref(text: str, line_number: int) -> Ref:
-    tokens = _RefTokens(text, line_number)
-    ref = _parse_ref_expr(tokens)
-    if not tokens.done:
-        raise ParseError(f"Line {line_number}: Unexpected token in commit reference: {tokens.peek()}")
+    stream = _TokenCursor(_tokenize_ref(text, line_number), line_number)
+    ref = _parse_ref_expr(stream)
+    if not stream.done:
+        raise ParseError(f"Line {line_number}: Unexpected token in commit reference: {stream.peek().value}")
     return ref
 
 
-def _parse_ref_expr(tokens: "_RefTokens") -> Ref:
-    base = _parse_ref_atom(tokens)
-    if tokens.accept("~"):
-        offset = _parse_ref_expr(tokens)
-        if isinstance(offset, BranchRef) and offset.name.isdecimal():
-            return ConstantOffsetRef(base, int(offset.name))
-        return DynamicOffsetRef(base, offset)
+def _parse_conflict_marker_ref(line: _Line, marker: TokenKind, context: str) -> Ref:
+    tokens = _lex_statement(_strip_comment(line.text).strip(), line.number)
+    stream = _TokenCursor(tokens, line.number)
+    stream.expect(marker, context)
+    if stream.done:
+        raise ParseError(f"Line {line.number}: {context} needs a commit reference")
+    token = stream.consume_argument(context)
+    stream.expect_done(context)
+    return _parse_ref(token.value, line.number)
+
+
+def _parse_ref_expr(stream: _TokenCursor) -> Ref:
+    base = _parse_ref_atom(stream)
+    if stream.accept(TokenKind.TILDE):
+        if token := stream.accept(TokenKind.INT_LITERAL):
+            offset_value = _parse_integer_literal(token.value, token.line, "commit reference offset")
+            if offset_value < 0:
+                raise ParseError(f"Line {token.line}: Negative offsets are not valid syntax")
+            return ConstantOffsetRef(base, offset_value)
+        return DynamicOffsetRef(base, _parse_ref_expr(stream))
     return base
 
 
-def _parse_ref_atom(tokens: "_RefTokens") -> Ref:
-    token = tokens.next()
+def _parse_ref_atom(stream: _TokenCursor) -> Ref:
+    token = stream.next()
     if token is None:
-        raise ParseError(f"Line {tokens.line_number}: Expected commit reference")
-    if token == "HEAD":
+        raise ParseError(f"Line {stream.line_number}: Expected commit reference")
+    if token.kind == TokenKind.HEAD:
         return HeadRef()
-    if token == "(":
-        ref = _parse_ref_expr(tokens)
-        if not tokens.accept(")"):
-            raise ParseError(f"Line {tokens.line_number}: Missing ')' in commit reference")
+    if token.kind == TokenKind.LPAREN:
+        ref = _parse_ref_expr(stream)
+        if not stream.accept(TokenKind.RPAREN):
+            raise ParseError(f"Line {stream.line_number}: Missing ')' in commit reference")
         return ref
-    if token in {"~", ")"}:
-        raise ParseError(f"Line {tokens.line_number}: Expected commit reference before {token}")
-    if token.isdecimal():
-        return BranchRef(token)
-    return BranchRef(_parse_name(token, tokens.line_number, "ref"))
+    if token.kind in {TokenKind.TILDE, TokenKind.RPAREN, TokenKind.RANGE}:
+        raise ParseError(f"Line {stream.line_number}: Expected commit reference before {token.value}")
+    if token.kind == TokenKind.INT_LITERAL:
+        raise ParseError(f"Line {stream.line_number}: Expected commit reference before integer literal")
+    if token.kind == TokenKind.IDENTIFIER:
+        return BranchRef(_parse_name(token.value, token.line, "ref"))
+    raise ParseError(f"Line {stream.line_number}: Expected commit reference")
 
 
 def _validate_function_statement_starts(lines: list[_Line]) -> None:
     for line in lines:
-        stripped = _strip_comment(line.text).strip()
-        if not stripped or _is_comment(stripped) or _is_conflict_marker(stripped):
+        tokens = _lex_statement(_strip_comment(line.text).strip(), line.number)
+        if not tokens or tokens[0].kind in _CONFLICT_MARKER_KINDS:
             continue
-        if stripped.startswith("git ") or stripped == "git" or stripped == "exit":
+        if tokens[0].kind in {TokenKind.GIT, TokenKind.EXIT}:
             continue
         raise ParseError(f"Line {line.number}: Function body statements must start with git or be exit")
 
@@ -747,51 +962,60 @@ def _validate_function_statement_starts(lines: list[_Line]) -> None:
 def _validate_function_parameter_uses(lines: list[_Line], parameter_kinds: dict[str, str]) -> None:
     for line in lines:
         raw = _strip_comment(line.text).strip()
-        if not raw or _is_comment(raw):
+        if not raw:
             continue
 
         for name in _find_parameter_refs(raw):
             if name not in parameter_kinds:
                 raise ParseError(f"Line {line.number}: Unknown parameter: {name}")
 
-        if raw.startswith("<<<<<<<"):
-            _require_parameter_kinds(raw[7:].strip(), parameter_kinds, _REF_PARAMETER_KINDS, line.number, "commit reference")
-            continue
-        if raw.startswith(">>>>>>>"):
-            _require_parameter_kinds(raw[7:].strip(), parameter_kinds, _REF_PARAMETER_KINDS, line.number, "commit reference")
-            continue
-        if raw.startswith("=======") or raw == "exit":
-            continue
-
         try:
             tokens = _lex_statement(raw, line.number)
         except ParseError:
             continue
 
-        if len(tokens) < 2 or tokens[0].value != "git":
+        if not tokens:
             continue
 
-        command = tokens[1].value
+        if tokens[0].kind in {TokenKind.CONFLICT_START, TokenKind.CONFLICT_END}:
+            marker_stream = _TokenCursor(tokens, line.number)
+            marker_stream.next()
+            if not marker_stream.done:
+                _require_parameter_kinds(
+                    marker_stream.consume_argument("commit reference").value,
+                    parameter_kinds,
+                    _REF_PARAMETER_KINDS,
+                    line.number,
+                    "commit reference",
+                )
+            continue
+        if tokens[0].kind in {TokenKind.CONFLICT_MIDDLE, TokenKind.EXIT}:
+            continue
+
+        if len(tokens) < 2 or tokens[0].kind != TokenKind.GIT:
+            continue
+
+        command = tokens[1].kind
         args = _token_values(tokens[2:])
-        if command == "commit":
+        if command == TokenKind.COMMIT:
             _validate_commit_parameters(raw, args, parameter_kinds, line.number)
-        elif command == "branch":
+        elif command == TokenKind.BRANCH:
             _validate_branch_parameters(args, parameter_kinds, line.number)
-        elif command == "checkout":
+        elif command == TokenKind.CHECKOUT:
             _validate_checkout_parameters(args, parameter_kinds, line.number)
-        elif command == "reset":
+        elif command == TokenKind.RESET:
             if args:
                 _require_parameter_kinds(args[0], parameter_kinds, _REF_PARAMETER_KINDS, line.number, "commit reference")
-        elif command == "merge":
+        elif command == TokenKind.MERGE:
             _validate_merge_parameters(args, parameter_kinds, line.number)
-        elif command == "cherry-pick":
+        elif command == TokenKind.CHERRY_PICK:
             _validate_cherry_pick_parameters(args, parameter_kinds, line.number)
-        elif command in {"revert", "rebase"}:
+        elif command in {TokenKind.REVERT, TokenKind.REBASE}:
             if args:
                 _require_parameter_kinds(args[0], parameter_kinds, _REF_PARAMETER_KINDS, line.number, "commit reference")
-        elif command == "tag":
+        elif command == TokenKind.TAG:
             _validate_tag_parameters(args, parameter_kinds, line.number)
-        elif command in {"show", "log", "rev-list"}:
+        elif command in {TokenKind.SHOW, TokenKind.LOG, TokenKind.REV_LIST}:
             _validate_list_like_parameters(args, parameter_kinds, line.number)
 
 
@@ -941,8 +1165,8 @@ def _substitute_function_parameter_placeholders(body: str, parameter_kinds: dict
         "-p": "protected-branch",
         "-t": "existing-tag",
         "-r": "HEAD",
-        "-c": "==",
-        "-o": "+",
+        "-c": "eq",
+        "-o": "add",
     }
 
     def replace(match):
@@ -953,34 +1177,6 @@ def _substitute_function_parameter_placeholders(body: str, parameter_kinds: dict
 
 def _find_parameter_refs(text: str) -> list[str]:
     return re.findall(r"\$([A-Za-z0-9_/-]+)", text)
-
-
-class _RefTokens:
-    def __init__(self, text: str, line_number: int):
-        self.tokens = _tokenize_ref(text, line_number)
-        self.line_number = line_number
-        self.index = 0
-
-    @property
-    def done(self) -> bool:
-        return self.index >= len(self.tokens)
-
-    def peek(self) -> str | None:
-        if self.done:
-            return None
-        return self.tokens[self.index].value
-
-    def next(self) -> str | None:
-        token = self.peek()
-        if token is not None:
-            self.index += 1
-        return token
-
-    def accept(self, expected: str) -> bool:
-        if self.peek() == expected:
-            self.index += 1
-            return True
-        return False
 
 
 def _tokenize_ref(text: str, line_number: int) -> list[Token]:
@@ -996,41 +1192,19 @@ def _strip_comment(text: str) -> str:
     return strip_comment(text)
 
 
-def _split_statement_separators(text: str) -> list[str]:
+def _split_statement_separators(text: str, line_number: int) -> list[str]:
+    tokens = _lex_statement(text, line_number)
+    split_columns = [token.column - 1 for token in tokens if token.kind == TokenKind.AND]
+    if not split_columns:
+        return [text.strip()] if text.strip() else []
+
     parts: list[str] = []
     start = 0
-    i = 0
-    in_single_quote = False
-    in_double_quote = False
-    escaped = False
-
-    while i < len(text):
-        char = text[i]
-        if escaped:
-            escaped = False
-            i += 1
-            continue
-        if char == "\\":
-            escaped = True
-            i += 1
-            continue
-        if char == "'" and not in_double_quote:
-            in_single_quote = not in_single_quote
-            i += 1
-            continue
-        if char == '"' and not in_single_quote:
-            in_double_quote = not in_double_quote
-            i += 1
-            continue
-        if text.startswith("&&", i) and not in_single_quote and not in_double_quote:
-            part = text[start:i].strip()
-            if part:
-                parts.append(part)
-            i += 2
-            start = i
-            continue
-        i += 1
-
+    for column in split_columns:
+        part = text[start:column].strip()
+        if part:
+            parts.append(part)
+        start = column + 2
     part = text[start:].strip()
     if part:
         parts.append(part)
@@ -1103,24 +1277,3 @@ def _commit_message_start(text: str) -> int | None:
 
     return None
 
-
-def _is_comment(stripped: str) -> bool:
-    return stripped.startswith("#")
-
-
-def _is_conflict_marker(stripped: str) -> bool:
-    return stripped.startswith(("<<<<<<<", "=======", ">>>>>>>"))
-
-
-def _expect_count(args: list[str], expected: int | tuple[int, ...], line_number: int, command: str) -> None:
-    if isinstance(expected, int):
-        expected_counts = (expected,)
-    else:
-        expected_counts = expected
-
-    if len(args) not in expected_counts:
-        if len(expected_counts) == 1:
-            message = f"{command} expects {expected_counts[0]} argument(s)"
-        else:
-            message = f"{command} expects {' or '.join(str(count) for count in expected_counts)} argument(s)"
-        raise ParseError(f"Line {line_number}: {message}")

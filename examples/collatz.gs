@@ -16,25 +16,25 @@ git branch sequence root
 git branch parity root
 
 # Keep appending n, then transform it until it reaches one.
-git merge -s >
+git merge -s gt
 <<<<<<< n
     git checkout sequence
     git cherry-pick n
 
     git checkout parity
     git reset n
-    git cherry-pick two -s=%
+    git cherry-pick two -s=mod
 
-    git merge -s ==
+    git merge -s eq
     <<<<<<< parity
         # even: n = n / 2
         git checkout n
-        git cherry-pick two -s=/
+        git cherry-pick two -s=div
     =======
         # odd: n = 3n + 1
         git checkout n
-        git cherry-pick three -s=*
-        git cherry-pick one -s=+
+        git cherry-pick three -s=mul
+        git cherry-pick one -s=add
     >>>>>>> root
 
     git merge --continue

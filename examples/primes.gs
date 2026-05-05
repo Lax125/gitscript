@@ -17,7 +17,7 @@ git branch remainder root
 git branch composite root
 
 # For each candidate, try dividing by every prime found so far.
-git merge -s <=
+git merge -s lte
 <<<<<<< candidate
     git checkout composite
     git reset root
@@ -32,9 +32,9 @@ git merge -s <=
     =======
         git checkout remainder
         git reset candidate
-        git cherry-pick walker -s=%
+        git cherry-pick walker -s=mod
 
-        git merge -s ==
+        git merge -s eq
         <<<<<<< remainder
             git checkout composite
             git reset root
@@ -49,7 +49,7 @@ git merge -s <=
     >>>>>>> root
 
     # Prime candidates are appended to the output list.
-    git merge -s ==
+    git merge -s eq
     <<<<<<< composite
         git checkout primes
         git cherry-pick candidate
@@ -58,7 +58,7 @@ git merge -s <=
     >>>>>>> root
 
     git checkout candidate
-    git cherry-pick one -s=+
+    git cherry-pick one -s=add
     git merge --continue
 =======
     git merge --abort

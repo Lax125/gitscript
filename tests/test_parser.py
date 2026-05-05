@@ -40,7 +40,7 @@ class ParserTests(unittest.TestCase):
             git commit --amend 42
             git commit -m "Hello, World!"
             git checkout -b feature
-            git cherry-pick main -s=-
+            git cherry-pick main -s=sub
             git show
             git log HEAD~1
             """
@@ -134,8 +134,8 @@ class ParserTests(unittest.TestCase):
     def test_cherry_pick_strategy_option_accepts_space_and_equals_forms(self):
         statements = parse(
             """
-            git cherry-pick main -s -
-            git cherry-pick main -s=-
+            git cherry-pick main -s sub
+            git cherry-pick main -s=sub
             git cherry-pick main -s min
             git cherry-pick main -s=max
             """
@@ -226,10 +226,10 @@ class ParserTests(unittest.TestCase):
     def test_parse_conflict_block(self):
         statements = parse(
             """
-            git merge -s >
+            git merge -s gt
             <<<<<<< a
                 git checkout a
-                git cherry-pick b -s=-
+                git cherry-pick b -s=sub
                 git merge --continue
             =======
                 git checkout b
@@ -356,7 +356,7 @@ class ParserTests(unittest.TestCase):
         statements = parse(
             """
             git cherry-pick HEAD~2..HEAD
-            git cherry-pick HEAD~2..HEAD -s +
+            git cherry-pick HEAD~2..HEAD -s add
             git revert HEAD
             git revert HEAD~2..HEAD
             git log -n 2 --reverse HEAD~2..HEAD

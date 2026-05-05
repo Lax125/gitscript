@@ -61,7 +61,7 @@ git merge -s is loop
 <<<<<<< cursor
     git merge --abort loop
 =======
-    git merge -s == marker_check
+    git merge -s eq marker_check
     <<<<<<< cursor
         git emit-triple output quote
         git emit template root output
@@ -92,7 +92,7 @@ git merge -s is loop
 <<<<<<< cursor
     git merge --abort loop
 =======
-    git merge -s == marker_check
+    git merge -s eq marker_check
     <<<<<<< cursor
         git emit-triple output quote
         git emit template root output

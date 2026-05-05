@@ -27,17 +27,17 @@ git branch selected_end root
 git config alias.bounds -r position -b start_depth -b end_depth -r word_count_ref -r fences_ref -r one_ref '!
     git branch index $word_count_ref
     git checkout index
-    git cherry-pick $position -s=-
+    git cherry-pick $position -s=sub
 
     git checkout $start_depth
     git reset $fences_ref~index
 
     git checkout index
-    git cherry-pick $one_ref -s=-
+    git cherry-pick $one_ref -s=sub
 
     git checkout $end_depth
     git reset $fences_ref~index
-    git cherry-pick $one_ref -s=-
+    git cherry-pick $one_ref -s=sub
 '
 
 # Compare two words lexicographically. comparison_ref is 1 if left sorts
@@ -73,23 +73,23 @@ git config alias.compare_words -r left_pos -r right_pos -b comparison_ref -r roo
             git reset $root_ref
             git merge --abort compare
         =======
-            git merge -s <
+            git merge -s lt
             <<<<<<< $words_ref~left_cursor
                 git checkout $comparison_ref
                 git reset $root_ref
                 git commit 1
                 git merge --abort compare
             =======
-                git merge -s >
+                git merge -s gt
                 <<<<<<< $words_ref~left_cursor
                     git checkout $comparison_ref
                     git reset $root_ref
                     git merge --abort compare
                 =======
                     git checkout left_cursor
-                    git cherry-pick $one_ref -s=+
+                    git cherry-pick $one_ref -s=add
                     git checkout right_cursor
-                    git cherry-pick $one_ref -s=+
+                    git cherry-pick $one_ref -s=add
                     git merge --continue compare
                 >>>>>>> $words_ref~right_cursor
             >>>>>>> $words_ref~right_cursor
@@ -132,22 +132,22 @@ git merge -s is build
     git checkout remaining
     git cherry-pick position
     git checkout word_count
-    git cherry-pick one -s=+
+    git cherry-pick one -s=add
 
     git merge skip_word
     <<<<<<< cursor
         git checkout cursor
         git reset HEAD~1
         git checkout depth
-        git cherry-pick one -s=+
+        git cherry-pick one -s=add
         git checkout position
-        git cherry-pick one -s=+
+        git cherry-pick one -s=add
         git merge --abort skip_word
     =======
         git checkout cursor
         git reset HEAD~1
         git checkout depth
-        git cherry-pick one -s=+
+        git cherry-pick one -s=add
         git merge --continue skip_word
     >>>>>>> root
 
@@ -156,7 +156,7 @@ git merge -s is build
 
 # Selection-sort the remaining word positions. Each pass logs the smallest
 # remaining word and rebuilds the remaining list without that position.
-git merge -s > sort
+git merge -s gt sort
 <<<<<<< remaining_count
     git checkout walker
     git reset remaining
@@ -182,7 +182,7 @@ git merge -s > sort
             git commit 1
         =======
             git compare_words current_pos best_pos comparison root words word_count fences one
-            git merge -s >
+            git merge -s gt
             <<<<<<< comparison
                 git checkout best_pos
                 git reset current_pos
@@ -228,7 +228,7 @@ git merge -s > sort
     git checkout remaining
     git reset new_remaining
     git checkout remaining_count
-    git cherry-pick one -s=-
+    git cherry-pick one -s=sub
     git merge --continue sort
 =======
     git merge --abort sort

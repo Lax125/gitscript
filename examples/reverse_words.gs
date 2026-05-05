@@ -19,7 +19,7 @@ git merge -s is
     git checkout reversed
     git cherry-pick word_end..word_start
 =======
-    git merge -s ==
+    git merge -s eq
     <<<<<<< word_end
         git checkout reversed
         git cherry-pick word_end..word_start

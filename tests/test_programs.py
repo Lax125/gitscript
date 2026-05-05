@@ -131,37 +131,37 @@ git log HEAD~19..HEAD
             git commit 10
             git branch ten
             git commit 3
-            git cherry-pick ten -s=+
+            git cherry-pick ten -s=add
             git show
             git reset HEAD~1
-            git cherry-pick ten -s=-
+            git cherry-pick ten -s=sub
             git show
             git reset HEAD~1
-            git cherry-pick ten -s=*
+            git cherry-pick ten -s=mul
             git show
             git reset HEAD~1
-            git cherry-pick ten -s=/
+            git cherry-pick ten -s=div
             git show
             git reset HEAD~1
-            git cherry-pick ten -s=%
+            git cherry-pick ten -s=mod
             git show
             git reset HEAD~1
-            git cherry-pick ten -s=>
+            git cherry-pick ten -s=gt
             git show
             git reset HEAD~1
-            git cherry-pick ten -s=<
+            git cherry-pick ten -s=lt
             git show
             git reset HEAD~1
-            git cherry-pick ten -s=>=
+            git cherry-pick ten -s=gte
             git show
             git reset HEAD~1
-            git cherry-pick ten -s=<=
+            git cherry-pick ten -s=lte
             git show
             git reset HEAD~1
-            git cherry-pick ten -s===
+            git cherry-pick ten -s=eq
             git show
             git reset HEAD~1
-            git cherry-pick ten -s=!=
+            git cherry-pick ten -s=neq
             git show
             git reset HEAD~1
             git cherry-pick ten
@@ -232,7 +232,7 @@ git log HEAD~19..HEAD
             git cherry-pick HEAD~5..HEAD~3
             git rev-list -n 2
             git reset HEAD~2
-            git cherry-pick HEAD~5..HEAD~3 -s +
+            git cherry-pick HEAD~5..HEAD~3 -s add
             git rev-list -n 2
             git reset HEAD~2
             git cherry-pick HEAD~5..HEAD~3 -s max
@@ -273,10 +273,10 @@ git log HEAD~19..HEAD
 
             git checkout main
 
-            git merge -s >
+            git merge -s gt
             <<<<<<< counter
                 git checkout counter
-                git cherry-pick one -s=-
+                git cherry-pick one -s=sub
                 git merge --continue
             =======
                 git merge --abort
@@ -311,12 +311,12 @@ git log HEAD~19..HEAD
             git commit 1
             git checkout main
 
-            git merge -s > loop
+            git merge -s gt loop
             <<<<<<< counter
                 git merge -s is inner
                 <<<<<<< main
                     git checkout counter
-                    git cherry-pick one -s=-
+                    git cherry-pick one -s=sub
                     git merge --continue loop
                 =======
                     git merge --abort
@@ -327,7 +327,7 @@ git log HEAD~19..HEAD
 
             git show counter
 
-            git merge -s > exit
+            git merge -s gt exit
             <<<<<<< counter
                 git merge --abort
             =======
@@ -392,10 +392,10 @@ git log HEAD~19..HEAD
             git checkout main
 
             git config merge.verbosity 2
-            git merge -s > loop
+            git merge -s gt loop
             <<<<<<< counter
                 git checkout counter
-                git cherry-pick one -s=-
+                git cherry-pick one -s=sub
                 git merge --continue loop
             =======
                 git merge --abort loop
@@ -403,7 +403,7 @@ git log HEAD~19..HEAD
 
             git config merge.verbosity 0
             git checkout main
-            git merge -s ==
+            git merge -s eq
             <<<<<<< main
                 git commit 9
             =======
@@ -415,12 +415,12 @@ git log HEAD~19..HEAD
         )
 
         self.assertEqual(output, "0\n")
-        self.assertIn("[merge] begin label=loop condition=>", debug)
-        self.assertIn("[merge] check label=loop condition=> left=1 right=0 selected=top", debug)
+        self.assertIn("[merge] begin label=loop condition=gt", debug)
+        self.assertIn("[merge] check label=loop condition=gt left=1 right=0 selected=top", debug)
         self.assertIn("[merge] continue target=loop handled_by=loop", debug)
-        self.assertIn("[merge] check label=loop condition=> left=0 right=0 selected=bottom", debug)
+        self.assertIn("[merge] check label=loop condition=gt left=0 right=0 selected=bottom", debug)
         self.assertIn("[merge] abort target=loop handled_by=loop", debug)
-        self.assertNotIn("condition==", debug)
+        self.assertNotIn("condition=eq", debug)
         self.assertEqual(repo.branches["counter"].value, 0)
 
     def test_statement_separator_and_true_false_integer_literals(self):
@@ -439,7 +439,7 @@ git log HEAD~19..HEAD
             git checkout -b counter
             git commit 1
             git checkout main
-            git merge -s >
+            git merge -s gt
             <<<<<<< counter
                 git merge --abort
             =======
@@ -560,7 +560,7 @@ git log HEAD~3..HEAD
                     git commit 0
                 >>>>>>> $root_ref
             '
-            git use 7 "A" ten root > max
+            git use 7 "A" ten root gt max
             git rev-list --reverse root..out
             """
         )

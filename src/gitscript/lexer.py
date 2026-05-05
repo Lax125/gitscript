@@ -61,7 +61,7 @@ class TokenKind(Enum):
     STRATEGY_THEIRS = auto()
     STRATEGY_MIN = auto()
     STRATEGY_MAX = auto()
-    STRATEGY_IS = auto()
+    CONDITION_IS = auto()
 
     UNKNOWN = auto()
 
@@ -101,7 +101,18 @@ _WORD_STRATEGIES = {
     "theirs": TokenKind.STRATEGY_THEIRS,
     "min": TokenKind.STRATEGY_MIN,
     "max": TokenKind.STRATEGY_MAX,
-    "is": TokenKind.STRATEGY_IS,
+    "add": TokenKind.STRATEGY_ADD,
+    "sub": TokenKind.STRATEGY_SUBTRACT,
+    "mul": TokenKind.STRATEGY_MULTIPLY,
+    "div": TokenKind.STRATEGY_DIVIDE,
+    "mod": TokenKind.STRATEGY_MODULO,
+    "gt": TokenKind.STRATEGY_GT,
+    "lt": TokenKind.STRATEGY_LT,
+    "gte": TokenKind.STRATEGY_GTE,
+    "lte": TokenKind.STRATEGY_LTE,
+    "eq": TokenKind.STRATEGY_EQ,
+    "neq": TokenKind.STRATEGY_NEQ,
+    "is": TokenKind.CONDITION_IS,
 }
 
 _SYMBOL_TOKENS = {
@@ -110,21 +121,10 @@ _SYMBOL_TOKENS = {
     "=======": TokenKind.CONFLICT_MIDDLE,
     ">>>>>>>": TokenKind.CONFLICT_END,
     "..": TokenKind.RANGE,
-    ">=": TokenKind.STRATEGY_GTE,
-    "<=": TokenKind.STRATEGY_LTE,
-    "==": TokenKind.STRATEGY_EQ,
-    "!=": TokenKind.STRATEGY_NEQ,
     "(": TokenKind.LPAREN,
     ")": TokenKind.RPAREN,
     "=": TokenKind.EQUALS,
     "~": TokenKind.TILDE,
-    "+": TokenKind.STRATEGY_ADD,
-    "-": TokenKind.STRATEGY_SUBTRACT,
-    "*": TokenKind.STRATEGY_MULTIPLY,
-    "/": TokenKind.STRATEGY_DIVIDE,
-    "%": TokenKind.STRATEGY_MODULO,
-    ">": TokenKind.STRATEGY_GT,
-    "<": TokenKind.STRATEGY_LT,
 }
 
 _SEPARATOR_KINDS = frozenset({
@@ -246,12 +246,12 @@ def _read_next_token(text: str, start: int, line_number: int, column: int, group
         return Token(TokenKind.STRING_LITERAL, value, line_number, column, True, "'", group), end
 
     for symbol in sorted(_SYMBOL_TOKENS, key=len, reverse=True):
-        if symbol == "-" and start + 1 < len(text) and not text[start + 1].isspace():
-            continue
         if text.startswith(symbol, start):
             return Token(_SYMBOL_TOKENS[symbol], symbol, line_number, column, group=group), start + len(symbol)
 
     value, end = _read_word(text, start)
+    if not value:
+        return Token(TokenKind.UNKNOWN, text[start], line_number, column, group=group), start + 1
     return Token(_classify_word(value), value, line_number, column, group=group), end
 
 

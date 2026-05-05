@@ -41,11 +41,17 @@ class LexerTests(unittest.TestCase):
                 TokenKind.GIT,
                 TokenKind.MERGE,
                 TokenKind.OPTION,
-                TokenKind.STRATEGY_IS,
+                TokenKind.CONDITION_IS,
             ],
         )
         self.assertEqual(tokens[7].group, tokens[8].group)
         self.assertEqual(tokens[8].group, tokens[9].group)
+
+        equals_strategy = lex_statement("git cherry-pick main -s=eq", 1)
+        self.assertEqual(
+            [token.kind for token in equals_strategy[-2:]],
+            [TokenKind.EQUALS, TokenKind.STRATEGY_EQ],
+        )
 
     def test_lexes_string_literals_and_ignores_comments_outside_quotes(self):
         tokens = lex_statement(r'git commit -m "A#B \"C\"" # comment', 1)

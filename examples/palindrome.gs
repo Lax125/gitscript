@@ -28,9 +28,9 @@ git merge -s is compare
     git checkout difference
     git reset root
     git cherry-pick input
-    git cherry-pick reverted_input -s=+
+    git cherry-pick reverted_input -s=add
 
-    git merge -s ==
+    git merge -s eq
     <<<<<<< difference
         # Characters match. Advance both walkers.
         git checkout input
@@ -47,7 +47,7 @@ git merge -s is compare
     git merge --continue
 >>>>>>> reverted_input
 
-git merge -s ==
+git merge -s eq
 <<<<<<< difference
     git checkout -b message root
     git commit -m " is a palindrome."
