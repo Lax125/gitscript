@@ -245,7 +245,8 @@ def protect_binding(binding: RefBinding, name: str) -> RefBinding:
 
 class Repo:
     def __init__(self):
-        root = Commit(0, None)
+        self.next_commit_order = 0
+        root = self.allocate_commit(0, None)
 
         self.branches = {"main": root}
         self.tags = {}
@@ -254,6 +255,11 @@ class Repo:
         self.merge_verbosity = 0
         self.aliases = {}
         self.call_stack: list[FunctionFrame] = []
+
+    def allocate_commit(self, value: int, parent: Commit | None) -> Commit:
+        commit = Commit(value, parent, self.next_commit_order)
+        self.next_commit_order += 1
+        return commit
 
     def current_frame(self) -> FunctionFrame | None:
         if not self.call_stack:

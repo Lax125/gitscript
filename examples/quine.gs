@@ -1,4 +1,4 @@
-git config alias.emit -r source -r root_ref -p out '!
+git config alias.emit -c source -c root_ref -p out '!
     git branch emit_cursor $source
     git merge -s is emit_loop
     <<<<<<< emit_cursor
@@ -12,7 +12,7 @@ git config alias.emit -r source -r root_ref -p out '!
     >>>>>>> $root_ref
 '
 
-git config alias.emit-triple -p out -r quote_ref '!
+git config alias.emit-triple -p out -c quote_ref '!
     git checkout $out
     git cherry-pick $quote_ref
     git cherry-pick $quote_ref
@@ -22,7 +22,7 @@ git config alias.emit-triple -p out -r quote_ref '!
 git tag root
 git branch template root
 git checkout template
-git commit -m="""git config alias.emit -r source -r root_ref -p out '!
+git commit -m="""git config alias.emit -c source -c root_ref -p out '!
     git branch emit_cursor $source
     git merge -s is emit_loop
     <<<<<<< emit_cursor
@@ -36,7 +36,7 @@ git commit -m="""git config alias.emit -r source -r root_ref -p out '!
     >>>>>>> $root_ref
 '
 
-git config alias.emit-triple -p out -r quote_ref '!
+git config alias.emit-triple -p out -c quote_ref '!
     git checkout $out
     git cherry-pick $quote_ref
     git cherry-pick $quote_ref

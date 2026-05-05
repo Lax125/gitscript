@@ -9,6 +9,7 @@
   | <tag-name>
   | <commit-ref>~<non-negative-int>
   | <commit-ref>~<commit-ref>
+  | <commit-ref>^
   | (<commit-ref>)
 ```
 
@@ -18,6 +19,7 @@
 * `<branch-name>` refers to that branch's tip
 * `<tag-name>` refers to the commit at the specified tag
 * `~n` moves `n` commits backwards
+* `<ref>^` is syntactic sugar for `<ref>~1`
 * `<ref>~n` is a runtime error if `<ref>` has fewer than `n` ancestors
 * `<ref>~<ref>`:
 
@@ -52,6 +54,8 @@ For example, `git`, `commit`, `merge`, `is`, and `max` are not valid branch or t
 
 ```text
 <commit-range> = <commit-ref>..<commit-ref>
+<symdiff-range> = <commit-ref>...<commit-ref>
+<commit-selector> = <commit-ref> | <commit-range> | <symdiff-range>
 ```
 
 ### Semantics
@@ -59,7 +63,36 @@ For example, `git`, `commit`, `merge`, `is`, and `max` are not valid branch or t
 `A..B` refers to all commits reachable from `B` (including `B`) but not reachable from `A`.
 
 * If `A == B`, the range is empty
-* Order is always defined relative to traversal from `B` backwards
+
+`A...B` refers to the symmetric difference between `A` and `B`:
+
+* include all commits reachable from `A`
+* include all commits reachable from `B`
+* exclude every commit reachable from both `A` and `B`
+
+### Commit Selection
+
+Commands that accept commit history selectors can take any number of `<commit-selector>` arguments. At least one selector must be specified unless the command supports and uses `--all`.
+
+The selected set is computed with Git-like inclusion and exclusion rules:
+
+1. For `git log` and `git rev-list`, every `<commit-ref>` selector includes all commits reachable from that resolved commit.
+2. For `git cherry-pick` and `git revert`, every `<commit-ref>` selector includes only that resolved commit.
+3. Every `A..B` selector includes all commits reachable from `B`.
+4. Every `A..B` selector excludes all commits reachable from `A`.
+5. Every `A...B` selector includes all commits reachable from either side.
+6. Every `A...B` selector excludes all commits reachable from both sides.
+7. Exclusions win over ordinary selector inclusions, even if an excluded commit was included by an earlier selector.
+
+For commands that support `--all`, `--all` adds all commits reachable from any ref visible in the current execution frame and overrides exclusions from range selectors. This includes:
+
+* visible branches
+* visible tags
+* branch and tag bindings passed into the current frame
+* protected visible branches, including `main`
+* commit parameters passed into the current frame
+
+The final selected set is sorted backwards chronologically: newest commit creation first, oldest commit creation last. GitScript therefore tracks commit creation order as part of commit identity. This order is independent of commit values and is stable even when branches are reset, rebased, or deleted.
 
 ---
 
@@ -312,14 +345,17 @@ Moves the current branch to the specified commit.
 ### `git cherry-pick`
 
 ```gitscript
-git cherry-pick <commit-ref> [-s ltstrategy>]
-git cherry-pick <commit-range> [-s ltstrategy>]
+git cherry-pick <commit-selector> [<commit-selector>]... [-s <strategy>]
 ```
 
 Creates new commits from existing commits.
 
+At least one selector is required. `--all` is not supported.
+
+The selectors are resolved using the commit selection rules. The final selected set is replayed **from oldest to newest**, so the newest-to-oldest selection order is reversed for replay.
+
 * `<commit-ref>`: creates a new commit using the referenced commit and the selected strategy
-* `<commit-range>`: replays commits **from oldest to newest**, preserving order
+* range selectors replay all commits in the selected set
 
 Strategies combine:
 
@@ -411,15 +447,14 @@ This makes loops explicit: use `git merge --continue` when a selected side will 
 ### `git revert`
 
 ```gitscript
-git revert <commit-ref>
-git revert <commit-range>
+git revert <commit-selector> [<commit-selector>]...
 ```
 
-* `<commit-ref>`: creates a commit with the **negated value**
-* `<commit-range>`:
+At least one selector is required. `--all` is not supported.
 
-  * iterates commits from newest to oldest
-  * appends commits with **negated values**
+The selectors are resolved using the commit selection rules. The final selected set is iterated from newest to oldest.
+
+For each selected commit, `git revert` appends a commit with the **negated value**.
 
 ---
 
@@ -449,37 +484,77 @@ Prints the value of a commit (default: `HEAD`).
 ### `git log`
 
 ```gitscript
-git log [-n <non-negative-int>] [--reverse] [--oneline] <commit-ref>
-git log [-n <non-negative-int>] [--reverse] [--oneline] <commit-range>
+git log [-n <non-negative-int>] [--reverse] [--oneline] [--all] [<commit-selector>]...
+git log [-n <non-negative-int>] [--graph] [--all] [<commit-selector>]...
 ```
 
 Prints characters from commits.
 
-* `<commit-ref>`: all commits reachable from that commit
-* `<commit-range>`: commits in the specified range
+The selectors are resolved using the commit selection rules. At least one selector is required unless `--all` is used.
 
 Traversal is:
 
 * default: newest to oldest
 * `--reverse`: oldest to newest
 
+`-n` limits the output after the selection has been sorted and after `--reverse` has been applied.
+
 By default, `git log` prints a trailing newline after the characters. `--oneline` omits that trailing newline, which is useful for prompts before `git commit` and `git commit -m` read from stdin.
 
 Each commit value is interpreted as a character.
+
+#### `git log --graph`
+
+`--graph` prints the selected commits as a diagnostic ancestry graph instead of printing commit values as characters.
+
+`--graph` is incompatible with:
+
+* `--oneline`
+* `--reverse`
+
+`--graph` still accepts `-n`, `--all`, and any number of commit selectors.
+
+Each graph line represents one selected commit. The line includes:
+
+* an ASCII ancestry graph showing the parent relationship between visible selected commits
+* a marker for the current `HEAD` commit
+* every visible branch that points at that commit
+* every visible tag that points at that commit
+* every commit parameter in the current frame that points at that commit
+* the commit's integer value
+* the character represented by that integer value, using GitScript's normal character printing rules
+
+The character value is shown in a human-readable escaped form so graph output remains line-oriented. For example, newline is shown as `\n` and null is shown as `\0`.
+
+Refs not visible in the current execution frame are not shown. Local function refs that have gone out of scope are not shown. Commit parameters are shown because `-c` parameters are evaluated at function-call time and bind a concrete commit for the callee.
+
+The exact ASCII edge layout is implementation-defined, but the graph is stable for a given selected set and creation history. Ref annotations are diagnostic text only; their semantic purpose is to identify what names in the current frame point to each visible commit.
+
+Example shape:
+
+```text
+* 7 value=65 char='A' [HEAD -> feature, tag:done, param:source]
+| * 6 value=66 char='B' [param:other]
+| | * 5 value=67 char='C' [tag:other2]
+| |/
+|/
+* 4 value=10 char='\n' [main !]
+* 1 value=0 char='\0'
+```
 
 ---
 
 ### `git rev-list`
 
 ```gitscript
-git rev-list [-n <non-negative-int>] [--reverse] <commit-ref>
-git rev-list [-n <non-negative-int>] [--reverse] <commit-range>
+git rev-list [-n <non-negative-int>] [--reverse] [--all] [<commit-selector>]...
 ```
 
 Prints commit values (integers), one per line.
 
-* `<commit-ref>`: all reachable commits
-* `<commit-range>`: commits in the range
+The selectors are resolved using the commit selection rules. At least one selector is required unless `--all` is used.
+
+`-n` limits the output after the selection has been sorted and after `--reverse` has been applied.
 
 ---
 
@@ -596,7 +671,7 @@ Alias expansion happens while parsing the command being executed, using aliases 
 ### Functions
 
 ```gitscript
-git config alias.function_name [-i <name>]... [-s <name>]... [-l <name>]... [-b <name>]... [-p <name>]... [-t <name>]... [-r <name>]... [-c <name>]... [-o <name>]... '![statement]...'
+git config alias.function_name [-i <name>]... [-s <name>]... [-l <name>]... [-b <name>]... [-p <name>]... [-t <name>]... [-c <name>]... [-m <name>]... [-o <name>]... '![statement]...'
 ```
 
 Defines a function. A function body is an ordered list of zero or more statements. When `git function_name` is executed, GitScript executes those statements in order.
@@ -640,8 +715,8 @@ Parameter references are checked against the function's declared parameters. A p
 * `-b` parameters can be used where an existing unprotected branch name is accepted
 * `-p` parameters can be used where an existing protected branch name is accepted
 * `-t` parameters can be used where an existing tag name is accepted
-* `-r` parameters can be used where commit references are accepted
-* `-c` parameters can be used where merge conditions are accepted
+* `-c` parameters can be used where commit references are accepted. A commit parameter can appear as one side of a commit range or symmetric difference range, but the parameter itself binds one concrete commit.
+* `-m` parameters can be used where merge conditions are accepted
 * `-o` parameters can be used where cherry-pick strategies are accepted
 
 This validation catches some errors before the function is ever called. For example, deleting a protected branch parameter is invalid:
@@ -692,14 +767,14 @@ Parameter types:
 * `-b <name>`: existing unprotected branch. The argument must name a branch that exists when the function is called. `main` and the caller's current branch cannot be passed as `-b`.
 * `-p <name>`: existing protected branch. The argument must name a branch that exists when the function is called. `main` and the caller's current branch can be passed as `-p`, and the branch cannot be deleted through the parameter inside the function.
 * `-t <name>`: existing tag. The argument must name a tag that exists when the function is called.
-* `-r <name>`: commit reference
-* `-c <name>`: merge-conflict condition
+* `-c <name>`: commit. The argument uses commit-reference syntax at the call site, then resolves immediately to a concrete commit in the caller's frame.
+* `-m <name>`: merge-conflict condition
 * `-o <name>`: cherry-pick integer operator
 
 Example:
 
 ```gitscript
-git config alias.pick -r source -o strategy '!
+git config alias.pick -c source -o strategy '!
   git cherry-pick $source -s=$strategy
 '
 
@@ -773,7 +848,7 @@ Use `-t` to bind an existing tag from the caller's frame.
 
 Use `-l` when a function needs a new label for a branch or tag it will create in the caller's frame. A `-l` argument is checked when the function is called and is valid only if it does not currently refer to any branch or tag in the caller's frame. Inside the function, creating `git branch $label` or `git tag $label` creates that ref in the caller's frame, not in the callee's temporary frame. This is similar in spirit to Python's `global`: the name is still introduced by the callee's code, but it belongs to the enclosing namespace.
 
-Commit-ref parameters (`-r`) are evaluated in the caller's frame when the function is called, then behave as commit references inside the callee. This lets a caller pass `branch1~2` without exposing the caller's `branch1` name directly.
+Commit parameters (`-c`) are evaluated in the caller's frame when the function is called, then bind that concrete commit inside the callee. The argument must be a `<commit-ref>`, not a `<commit-range>` or `<symdiff-range>`. This lets a caller pass `branch1~2` without exposing the caller's `branch1` name directly. The bound commit can be used anywhere a commit reference is expected, including as one side of a range selector, and `git log --graph` can annotate it as a parameter-bound commit.
 
 Nested function calls create nested frames. A branch or tag created in an outer function is not visible by name inside an inner function unless it is passed as a parameter to the inner function. In each nested call, `main` refers to that call's caller branch.
 

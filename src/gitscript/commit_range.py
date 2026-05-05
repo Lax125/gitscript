@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from gitscript.commit import Commit
 from gitscript.refs import Ref
 from gitscript.repo import Repo
@@ -9,16 +11,65 @@ class CommitRange:
         self.include = include
 
     def resolve(self, repo: Repo) -> list[Commit]:
-        excluded = set()
-        commit = self.exclude.resolve(repo)
-        while commit is not None:
-            excluded.add(commit)
-            commit = commit.parent
+        return resolve_commit_selectors(repo, [self], ref_includes_reachable=False)
 
-        commits = []
-        commit = self.include.resolve(repo)
-        while commit is not None and commit not in excluded:
-            commits.append(commit)
-            commit = commit.parent
+    def included_commits(self, repo: Repo) -> set[Commit]:
+        return set(reachable_commits(self.include.resolve(repo)))
 
-        return commits
+    def excluded_commits(self, repo: Repo) -> set[Commit]:
+        return set(reachable_commits(self.exclude.resolve(repo)))
+
+
+class SymmetricDifferenceRange:
+    def __init__(self, left: Ref, right: Ref):
+        self.left = left
+        self.right = right
+
+    def resolve(self, repo: Repo) -> list[Commit]:
+        return resolve_commit_selectors(repo, [self], ref_includes_reachable=False)
+
+    def included_commits(self, repo: Repo) -> set[Commit]:
+        return set(reachable_commits(self.left.resolve(repo))) | set(reachable_commits(self.right.resolve(repo)))
+
+    def excluded_commits(self, repo: Repo) -> set[Commit]:
+        left = set(reachable_commits(self.left.resolve(repo)))
+        right = set(reachable_commits(self.right.resolve(repo)))
+        return left & right
+
+
+CommitSelector = Ref | CommitRange | SymmetricDifferenceRange
+
+
+def resolve_commit_selectors(
+        repo: Repo,
+        selectors: list[CommitSelector],
+        ref_includes_reachable: bool,
+) -> list[Commit]:
+    included: set[Commit] = set()
+    excluded: set[Commit] = set()
+
+    for selector in selectors:
+        if isinstance(selector, Ref):
+            commit = selector.resolve(repo)
+            if ref_includes_reachable:
+                included.update(reachable_commits(commit))
+            else:
+                included.add(commit)
+            continue
+
+        included.update(selector.included_commits(repo))
+        excluded.update(selector.excluded_commits(repo))
+
+    return sort_backwards_chronologically(included - excluded)
+
+
+def reachable_commits(commit: Commit) -> list[Commit]:
+    commits = []
+    while commit is not None:
+        commits.append(commit)
+        commit = commit.parent
+    return commits
+
+
+def sort_backwards_chronologically(commits: set[Commit]) -> list[Commit]:
+    return sorted(commits, key=lambda commit: commit.order, reverse=True)

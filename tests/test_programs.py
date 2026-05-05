@@ -60,7 +60,7 @@ git log HEAD~19..HEAD
             'git commit -m\n'
             'git log root..HEAD\n'
             'git commit 0\n'
-            'git log -n 1\n',
+            'git log -n 1 HEAD\n',
             inputs=["Yo"],
         )
 
@@ -192,10 +192,11 @@ git log HEAD~19..HEAD
             git branch offset
             git show data~1
             git show data~(offset)
+            git show data^
             """
         )
 
-        self.assertEqual(output, "65\n65\n")
+        self.assertEqual(output, "65\n65\n65\n")
         self.assertEqual(repo.branches["offset"].value, 1)
 
         with self.assertRaisesRegex(RuntimeError, "Ancestor does not exist"):
@@ -218,6 +219,68 @@ git log HEAD~19..HEAD
         self.assertEqual(output, "\x00BA\nB\x00\n0\n66\n65\n65\n66\n0\n")
         self.assertEqual(repo.branches["main"].value, 0)
 
+    def test_multiple_commit_selectors_include_and_exclude_for_log_and_rev_list(self):
+        repo, output = run_program(
+            """
+            git tag root
+            git commit 65
+            git branch base
+            git commit 66
+            git branch right
+            git checkout -b left base
+            git commit 67
+
+            git rev-list --reverse root..left root..right
+            git rev-list --reverse root..left left..right
+            git log --reverse root..left root..right
+            """
+        )
+
+        self.assertEqual(output, "65\n66\n67\n66\nABC\n")
+        self.assertEqual(repo.branches["left"].value, 67)
+
+    def test_symmetric_difference_ranges_for_log_and_rev_list(self):
+        repo, output = run_program(
+            """
+            git commit 65
+            git branch base
+            git commit 66
+            git branch right
+            git checkout -b left base
+            git commit 67
+
+            git rev-list --reverse left...right
+            git log --reverse left...right
+            """
+        )
+
+        self.assertEqual(output, "66\n67\nBC\n")
+        self.assertEqual(repo.branches["left"].value, 67)
+
+    def test_multiple_commit_selectors_for_cherry_pick_and_revert(self):
+        repo, output = run_program(
+            """
+            git tag root
+            git commit 1
+            git branch one
+            git commit 2
+            git branch two
+            git reset root
+
+            git cherry-pick one two -s=add
+            git rev-list --reverse root..HEAD
+            git reset root
+
+            git cherry-pick root..two one..two
+            git rev-list --reverse root..HEAD
+            git revert root..HEAD HEAD^..HEAD
+            git rev-list -n 1 HEAD
+            """
+        )
+
+        self.assertEqual(output, "1\n3\n2\n-2\n")
+        self.assertEqual(repo.branches["main"].value, -2)
+
     def test_cherry_pick_and_revert_ref_and_range(self):
         repo, output = run_program(
             """
@@ -226,19 +289,19 @@ git log HEAD~19..HEAD
             git branch two
             git commit 3
             git cherry-pick two
-            git rev-list -n 1
+            git rev-list -n 1 HEAD
             git revert two
-            git rev-list -n 1
+            git rev-list -n 1 HEAD
             git cherry-pick HEAD~5..HEAD~3
-            git rev-list -n 2
+            git rev-list -n 2 HEAD
             git reset HEAD~2
             git cherry-pick HEAD~5..HEAD~3 -s add
-            git rev-list -n 2
+            git rev-list -n 2 HEAD
             git reset HEAD~2
             git cherry-pick HEAD~5..HEAD~3 -s max
-            git rev-list -n 2
+            git rev-list -n 2 HEAD
             git revert HEAD~7..HEAD~5
-            git rev-list -n 2
+            git rev-list -n 2 HEAD
             """
         )
 
@@ -256,7 +319,7 @@ git log HEAD~19..HEAD
             git commit 9
             git checkout feature
             git rebase main
-            git rev-list -n 5
+            git rev-list -n 5 HEAD
             """
         )
 
@@ -426,7 +489,7 @@ git log HEAD~19..HEAD
     def test_statement_separator_and_true_false_integer_literals(self):
         repo, output = run_program(
             """
-            git commit true && git commit false && git rev-list -n 2
+            git commit true && git commit false && git rev-list -n 2 HEAD
             """
         )
 
@@ -639,7 +702,7 @@ git log HEAD~3..HEAD
             git commit 10
             git branch ten
             git checkout -b out root
-            git config alias.use -i amount -s text -r source -r root_ref -c condition -o strategy '!
+            git config alias.use -i amount -s text -c source -c root_ref -m condition -o strategy '!
                 git checkout main
                 git cherry-pick $source -s=$strategy
                 git merge -s $condition
@@ -659,6 +722,16 @@ git log HEAD~3..HEAD
         self.assertEqual(repo.branches["out"].value, ord("A"))
         self.assertEqual(repo.call_stack, [])
 
+        with self.assertRaises(ParseError):
+            run_program(
+                """
+                git config alias.use -c source '!
+                    git show $source
+                '
+                git use HEAD~1..HEAD
+                """
+            )
+
     def test_function_defaults_named_arguments_and_exit(self):
         repo, output = run_program(
             """
@@ -669,7 +742,7 @@ git log HEAD~3..HEAD
             '
             git make
             git make --amount 4
-            git rev-list -n 3
+            git rev-list -n 3 HEAD
             """
         )
 

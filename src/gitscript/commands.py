@@ -1,7 +1,7 @@
 import sys
 from typing import Optional
 
-from gitscript.commit_range import CommitRange
+from gitscript.commit_range import CommitRange, CommitSelector, resolve_commit_selectors
 from gitscript.refs import resolve, Ref, HeadRef
 from gitscript.commit import Commit
 from gitscript.operators import Operator
@@ -40,12 +40,20 @@ def cherry_pick_range(repo: Repo, commit_range: CommitRange, op: Operator = Oper
     for c in commit_range.resolve(repo)[::-1]:
         commit(repo, _apply_operator(repo.current_commit().value, c.value, op), operation="git cherry-pick range")
 
+def cherry_pick_selectors(repo: Repo, selectors: list[CommitSelector], op: Operator = Operator.THEIRS):
+    for c in resolve_commit_selectors(repo, selectors, ref_includes_reachable=False)[::-1]:
+        commit(repo, _apply_operator(repo.current_commit().value, c.value, op), operation="git cherry-pick range")
+
 def revert(repo: Repo, ref: Ref):
     c = ref.resolve(repo)
     commit(repo, -c.value, operation="git revert")
 
 def revert_range(repo: Repo, commit_range: CommitRange):
     for c in commit_range.resolve(repo):
+        commit(repo, -c.value, operation="git revert range")
+
+def revert_selectors(repo: Repo, selectors: list[CommitSelector]):
+    for c in resolve_commit_selectors(repo, selectors, ref_includes_reachable=False):
         commit(repo, -c.value, operation="git revert range")
 
 def reset(repo, ref):
@@ -99,24 +107,35 @@ def show(repo: Repo, ref: Ref):
     print(c.value)
 
 def log(repo: Repo, ref: Ref, limit: Optional[int] = None, reverse: bool = False, oneline: bool = False):
-    _print_string(_commits_to_string(_select_commits(_reachable_commits(resolve(ref, repo)), limit, reverse)), oneline)
+    _print_string(_commits_to_string(_select_commits(resolve_commit_selectors(repo, [ref], True), limit, reverse)), oneline)
 
 def log_range(repo: Repo, commit_range: CommitRange, limit: Optional[int] = None, reverse: bool = False, oneline: bool = False):
-    _print_string(_commits_to_string(_select_commits(commit_range.resolve(repo), limit, reverse)), oneline)
+    log_selectors(repo, [commit_range], limit, reverse, oneline)
+
+def log_selectors(
+        repo: Repo,
+        selectors: list[CommitSelector],
+        limit: Optional[int] = None,
+        reverse: bool = False,
+        oneline: bool = False,
+):
+    commits = resolve_commit_selectors(repo, selectors, ref_includes_reachable=True)
+    _print_string(_commits_to_string(_select_commits(commits, limit, reverse)), oneline)
 
 def rev_list(repo: Repo, ref: Ref, limit: Optional[int] = None, reverse: bool = False):
-    _print_values(_select_commits(_reachable_commits(resolve(ref, repo)), limit, reverse))
+    _print_values(_select_commits(resolve_commit_selectors(repo, [ref], True), limit, reverse))
 
 def rev_list_range(repo: Repo, commit_range: CommitRange, limit: Optional[int] = None, reverse: bool = False):
-    _print_values(_select_commits(commit_range.resolve(repo), limit, reverse))
+    rev_list_selectors(repo, [commit_range], limit, reverse)
 
-
-def _reachable_commits(c: Commit) -> list[Commit]:
-    commits = []
-    while c is not None:
-        commits.append(c)
-        c = c.parent
-    return commits
+def rev_list_selectors(
+        repo: Repo,
+        selectors: list[CommitSelector],
+        limit: Optional[int] = None,
+        reverse: bool = False,
+):
+    commits = resolve_commit_selectors(repo, selectors, ref_includes_reachable=True)
+    _print_values(_select_commits(commits, limit, reverse))
 
 
 def _select_commits(commits: list[Commit], limit: Optional[int], reverse: bool) -> list[Commit]:
@@ -141,7 +160,7 @@ def _print_values(commits: list[Commit]) -> None:
 
 
 def _create_commit(repo: Repo, value: int, parent: Optional[Commit], operation: str) -> Commit:
-    new = Commit(value, parent)
+    new = repo.allocate_commit(value, parent)
     _log_commit(repo, new, parent, operation)
     return new
 

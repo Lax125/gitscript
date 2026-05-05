@@ -3,7 +3,7 @@ from enum import Enum, auto
 
 
 _NAME_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_/")
-_WORD_BREAKS = frozenset("()~=<>!+*%|")
+_WORD_BREAKS = frozenset("()~=<>!+*%|^")
 
 
 class LexError(ValueError):
@@ -42,7 +42,9 @@ class TokenKind(Enum):
     RPAREN = auto()
     EQUALS = auto()
     TILDE = auto()
+    CARET = auto()
     RANGE = auto()
+    SYMDIFF_RANGE = auto()
     CONFLICT_START = auto()
     CONFLICT_MIDDLE = auto()
     CONFLICT_END = auto()
@@ -122,11 +124,13 @@ _SYMBOL_TOKENS = {
     "<<<<<<<": TokenKind.CONFLICT_START,
     "=======": TokenKind.CONFLICT_MIDDLE,
     ">>>>>>>": TokenKind.CONFLICT_END,
+    "...": TokenKind.SYMDIFF_RANGE,
     "..": TokenKind.RANGE,
     "(": TokenKind.LPAREN,
     ")": TokenKind.RPAREN,
     "=": TokenKind.EQUALS,
     "~": TokenKind.TILDE,
+    "^": TokenKind.CARET,
 }
 
 _SEPARATOR_KINDS = frozenset({

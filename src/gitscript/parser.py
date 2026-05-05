@@ -3,7 +3,7 @@ import re
 from dataclasses import dataclass
 from typing import Iterable
 
-from gitscript.commit_range import CommitRange
+from gitscript.commit_range import CommitRange, CommitSelector, SymmetricDifferenceRange
 from gitscript.lexer import (
     LexError,
     Token,
@@ -399,7 +399,7 @@ _COMMANDS = {
     TokenKind.REV_LIST,
 }
 
-_PARAMETER_TYPE_OPTIONS = frozenset({"-i", "-s", "-l", "-b", "-p", "-t", "-r", "-c", "-o"})
+_PARAMETER_TYPE_OPTIONS = frozenset({"-i", "-s", "-l", "-b", "-p", "-t", "-c", "-m", "-o"})
 
 _OPERATOR_BY_KIND = {
     TokenKind.STRATEGY_OURS: Operator.OURS,
@@ -533,11 +533,10 @@ def _parse_simple_statement(tokens: list[Token], line_number: int) -> Statement 
     if command.kind == TokenKind.CHERRY_PICK:
         return _parse_cherry_pick(stream)
     if command.kind == TokenKind.REVERT:
-        target = _parse_required_range_or_ref_argument(stream, "git revert")
-        stream.expect_done("git revert")
-        if isinstance(target, CommitRange):
-            return RevertRange(target)
-        return Revert(target)
+        selectors = _parse_required_commit_selectors(stream, "git revert")
+        if len(selectors) == 1 and not isinstance(selectors[0], (CommitRange, SymmetricDifferenceRange)):
+            return Revert(selectors[0])
+        return RevertRange(selectors)
     if command.kind == TokenKind.REBASE:
         ref = _parse_required_ref_argument(stream, "git rebase")
         stream.expect_done("git rebase")
@@ -549,15 +548,15 @@ def _parse_simple_statement(tokens: list[Token], line_number: int) -> Statement 
         stream.expect_done("git show")
         return Show(ref if ref is not None else HeadRef())
     if command.kind == TokenKind.LOG:
-        target, limit, reverse, oneline = _parse_list_args(stream, "git log", allow_oneline=True)
-        if isinstance(target, CommitRange):
-            return LogRange(target, limit, reverse, oneline)
-        return Log(target, limit, reverse, oneline)
+        selectors, limit, reverse, oneline = _parse_list_args(stream, "git log", allow_oneline=True)
+        if len(selectors) == 1 and not isinstance(selectors[0], (CommitRange, SymmetricDifferenceRange)):
+            return Log(selectors[0], limit, reverse, oneline)
+        return LogRange(selectors, limit, reverse, oneline)
     if command.kind == TokenKind.REV_LIST:
-        target, limit, reverse, _ = _parse_list_args(stream, "git rev-list")
-        if isinstance(target, CommitRange):
-            return RevListRange(target, limit, reverse)
-        return RevList(target, limit, reverse)
+        selectors, limit, reverse, _ = _parse_list_args(stream, "git rev-list")
+        if len(selectors) == 1 and not isinstance(selectors[0], (CommitRange, SymmetricDifferenceRange)):
+            return RevList(selectors[0], limit, reverse)
+        return RevListRange(selectors, limit, reverse)
 
     return AliasCall(command.value, _token_values(stream.rest()))
 
@@ -680,10 +679,10 @@ def _validate_parameter_default(kind: str, value: str, line_number: int) -> str:
         return value
     if kind in {"-l", "-b", "-p", "-t"}:
         return _parse_name(value, line_number, "parameter default")
-    if kind == "-r":
+    if kind == "-c":
         _parse_ref(value, line_number)
         return value
-    if kind == "-c":
+    if kind == "-m":
         _parse_condition(value, line_number)
         return value
     if kind == "-o":
@@ -735,7 +734,7 @@ def _parse_commit(stream: _TokenCursor) -> Statement:
 
 
 def _parse_cherry_pick(stream: _TokenCursor) -> CherryPick | CherryPickRange:
-    target = _parse_required_range_or_ref_argument(stream, "git cherry-pick")
+    selectors: list[CommitSelector] = []
     op = Operator.THEIRS
     while not stream.done:
         if stream.accept(TokenKind.OPTION, "-s"):
@@ -747,11 +746,16 @@ def _parse_cherry_pick(stream: _TokenCursor) -> CherryPick | CherryPickRange:
                 raise ParseError(f"Line {token.line}: Unknown strategy: {token.value}")
             op = _parse_operator_token(stream.next())
             continue
-        raise ParseError(f"Line {stream.line_number}: Unexpected git cherry-pick argument: {stream.peek().value}")
+        if stream.peek().kind == TokenKind.OPTION:
+            raise ParseError(f"Line {stream.line_number}: Unexpected git cherry-pick argument: {stream.peek().value}")
+        selectors.append(_parse_commit_selector(stream.consume_argument("git cherry-pick").value, stream.line_number))
 
-    if isinstance(target, CommitRange):
-        return CherryPickRange(target, op)
-    return CherryPick(target, op)
+    if not selectors:
+        raise ParseError(f"Line {stream.line_number}: git cherry-pick needs at least one commit selector")
+
+    if len(selectors) == 1 and not isinstance(selectors[0], (CommitRange, SymmetricDifferenceRange)):
+        return CherryPick(selectors[0], op)
+    return CherryPickRange(selectors, op)
 
 
 def _parse_merge(stream: _TokenCursor) -> Statement | _MergeStart:
@@ -848,7 +852,7 @@ def _parse_name_token(token: Token, kind: str) -> str:
 def _parse_merge_label(token: Token) -> str:
     if token.kind in _OPERATOR_BY_KIND or token.kind in _CONDITION_BY_KIND:
         raise ParseError(f"Line {token.line}: merge label name cannot be an operator")
-    if token.kind in {TokenKind.OPTION, TokenKind.EQUALS, TokenKind.TILDE, TokenKind.RANGE}:
+    if token.kind in {TokenKind.OPTION, TokenKind.EQUALS, TokenKind.TILDE, TokenKind.CARET, TokenKind.RANGE, TokenKind.SYMDIFF_RANGE}:
         raise ParseError(f"Line {token.line}: merge label name expects identifier")
     if token.value == "HEAD":
         raise ParseError(f"Line {token.line}: merge label name cannot be HEAD")
@@ -861,16 +865,27 @@ def _parse_merge_label(token: Token) -> str:
     return token.value
 
 
-def _parse_range_or_ref(text: str, line_number: int) -> Ref | CommitRange:
+def _parse_commit_selector(text: str, line_number: int) -> CommitSelector:
     tokens = _tokenize_ref(text, line_number)
     stream = _TokenCursor(tokens, line_number)
     left = _parse_ref_expr(stream)
+    if stream.accept(TokenKind.SYMDIFF_RANGE):
+        right = _parse_ref_expr(stream)
+        stream.expect_done("symmetric difference range")
+        return SymmetricDifferenceRange(left, right)
     if stream.accept(TokenKind.RANGE):
         right = _parse_ref_expr(stream)
         stream.expect_done("commit range")
         return CommitRange(left, right)
     stream.expect_done("commit reference")
     return left
+
+
+def _parse_range_or_ref(text: str, line_number: int) -> Ref | CommitRange:
+    selector = _parse_commit_selector(text, line_number)
+    if isinstance(selector, SymmetricDifferenceRange):
+        raise ParseError(f"Line {line_number}: Symmetric difference range is not valid here")
+    return selector
 
 
 def _parse_required_ref_argument(stream: _TokenCursor, command: str) -> Ref:
@@ -889,15 +904,27 @@ def _parse_required_range_or_ref_argument(stream: _TokenCursor, command: str) ->
     return _parse_range_or_ref(token.value, stream.line_number)
 
 
+def _parse_required_commit_selectors(stream: _TokenCursor, command: str) -> list[CommitSelector]:
+    selectors: list[CommitSelector] = []
+    while not stream.done:
+        if stream.peek().kind == TokenKind.OPTION:
+            raise ParseError(f"Line {stream.line_number}: Unexpected {command} argument: {stream.peek().value}")
+        selectors.append(_parse_commit_selector(stream.consume_argument(command).value, stream.line_number))
+
+    if not selectors:
+        raise ParseError(f"Line {stream.line_number}: {command} needs at least one commit selector")
+    return selectors
+
+
 def _parse_list_args(
         stream: _TokenCursor,
         command: str,
         allow_oneline: bool = False,
-) -> tuple[Ref | CommitRange, int | None, bool, bool]:
+) -> tuple[list[CommitSelector], int | None, bool, bool]:
     limit = None
     reverse = False
     oneline = False
-    target: Ref | CommitRange | None = None
+    selectors: list[CommitSelector] = []
 
     while not stream.done:
         if stream.accept(TokenKind.OPTION, "--reverse"):
@@ -918,11 +945,11 @@ def _parse_list_args(
         if stream.peek().kind == TokenKind.OPTION:
             raise ParseError(f"Line {stream.line_number}: Unexpected {command} argument: {stream.peek().value}")
 
-        if target is not None:
-            raise ParseError(f"Line {stream.line_number}: {command} accepts only one ref or range")
-        target = _parse_range_or_ref(stream.consume_argument(command).value, stream.line_number)
+        selectors.append(_parse_commit_selector(stream.consume_argument(command).value, stream.line_number))
 
-    return target if target is not None else HeadRef(), limit, reverse, oneline
+    if not selectors:
+        raise ParseError(f"Line {stream.line_number}: {command} needs at least one commit selector")
+    return selectors, limit, reverse, oneline
 
 
 def _parse_limit_token(token: Token, command: str) -> int:
@@ -964,13 +991,19 @@ def _parse_conflict_marker_ref(line: _Line, marker: TokenKind, context: str) -> 
 
 def _parse_ref_expr(stream: _TokenCursor) -> Ref:
     base = _parse_ref_atom(stream)
-    if stream.accept(TokenKind.TILDE):
-        if token := stream.accept(TokenKind.INT_LITERAL):
-            offset_value = _parse_integer_literal(token.value, token.line, "commit reference offset")
-            if offset_value < 0:
-                raise ParseError(f"Line {token.line}: Negative offsets are not valid syntax")
-            return ConstantOffsetRef(base, offset_value)
-        return DynamicOffsetRef(base, _parse_ref_expr(stream))
+    while True:
+        if stream.accept(TokenKind.CARET):
+            base = ConstantOffsetRef(base, 1)
+            continue
+        if stream.accept(TokenKind.TILDE):
+            if token := stream.accept(TokenKind.INT_LITERAL):
+                offset_value = _parse_integer_literal(token.value, token.line, "commit reference offset")
+                if offset_value < 0:
+                    raise ParseError(f"Line {token.line}: Negative offsets are not valid syntax")
+                base = ConstantOffsetRef(base, offset_value)
+                continue
+            return DynamicOffsetRef(base, _parse_ref_expr(stream))
+        break
     return base
 
 
@@ -985,7 +1018,7 @@ def _parse_ref_atom(stream: _TokenCursor) -> Ref:
         if not stream.accept(TokenKind.RPAREN):
             raise ParseError(f"Line {stream.line_number}: Missing ')' in commit reference")
         return ref
-    if token.kind in {TokenKind.TILDE, TokenKind.RPAREN, TokenKind.RANGE}:
+    if token.kind in {TokenKind.TILDE, TokenKind.CARET, TokenKind.RPAREN, TokenKind.RANGE, TokenKind.SYMDIFF_RANGE}:
         raise ParseError(f"Line {stream.line_number}: Expected commit reference before {token.value}")
     if token.kind == TokenKind.INT_LITERAL:
         raise ParseError(f"Line {stream.line_number}: Expected commit reference before integer literal")
@@ -1066,7 +1099,7 @@ def _validate_function_parameter_uses(lines: list[_Line], parameter_kinds: dict[
             _validate_list_like_parameters(args, parameter_kinds, line.number)
 
 
-_REF_PARAMETER_KINDS = frozenset({"-r", "-l", "-b", "-p", "-t"})
+_REF_PARAMETER_KINDS = frozenset({"-c", "-l", "-b", "-p", "-t"})
 
 
 def _validate_commit_parameters(raw: str, args: list[str], parameter_kinds: dict[str, str], line_number: int) -> None:
@@ -1129,10 +1162,10 @@ def _validate_merge_parameters(args: list[str], parameter_kinds: dict[str, str],
             return
         if arg == "-s":
             if i + 1 < len(args):
-                _require_parameter_kinds(args[i + 1], parameter_kinds, {"-c"}, line_number, "merge condition")
+                _require_parameter_kinds(args[i + 1], parameter_kinds, {"-m"}, line_number, "merge condition")
             i += 2
         elif arg.startswith("-s="):
-            _require_parameter_kinds(arg[3:], parameter_kinds, {"-c"}, line_number, "merge condition")
+            _require_parameter_kinds(arg[3:], parameter_kinds, {"-m"}, line_number, "merge condition")
             i += 1
         else:
             _require_parameter_kinds(arg, parameter_kinds, {"-l"}, line_number, "merge label")
@@ -1140,11 +1173,8 @@ def _validate_merge_parameters(args: list[str], parameter_kinds: dict[str, str],
 
 
 def _validate_cherry_pick_parameters(args: list[str], parameter_kinds: dict[str, str], line_number: int) -> None:
-    if not args:
-        return
-
-    _require_parameter_kinds(args[0], parameter_kinds, _REF_PARAMETER_KINDS, line_number, "commit reference")
-    i = 1
+    i = 0
+    saw_selector = False
     while i < len(args):
         arg = args[i]
         if arg == "-s":
@@ -1154,8 +1184,14 @@ def _validate_cherry_pick_parameters(args: list[str], parameter_kinds: dict[str,
         elif arg.startswith("-s="):
             _require_parameter_kinds(arg[3:], parameter_kinds, {"-o"}, line_number, "cherry-pick strategy")
             i += 1
-        else:
+        elif arg.startswith("-"):
             i += 1
+        else:
+            saw_selector = True
+            _require_parameter_kinds(arg, parameter_kinds, _REF_PARAMETER_KINDS, line_number, "commit selector")
+            i += 1
+    if not saw_selector:
+        return
 
 
 def _validate_tag_parameters(args: list[str], parameter_kinds: dict[str, str], line_number: int) -> None:
@@ -1182,7 +1218,7 @@ def _validate_list_like_parameters(args: list[str], parameter_kinds: dict[str, s
         elif arg in {"--reverse", "--oneline"}:
             i += 1
         else:
-            _require_parameter_kinds(arg, parameter_kinds, _REF_PARAMETER_KINDS, line_number, "commit reference")
+            _require_parameter_kinds(arg, parameter_kinds, _REF_PARAMETER_KINDS, line_number, "commit selector")
             i += 1
 
 
@@ -1211,8 +1247,8 @@ def _substitute_function_parameter_placeholders(body: str, parameter_kinds: dict
         "-b": "existing-branch",
         "-p": "protected-branch",
         "-t": "existing-tag",
-        "-r": "HEAD",
-        "-c": "eq",
+        "-c": "HEAD",
+        "-m": "eq",
         "-o": "add",
     }
 

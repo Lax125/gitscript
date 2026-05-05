@@ -4,10 +4,11 @@ import shlex
 from dataclasses import dataclass
 from typing import Optional
 
-from gitscript.commit_range import CommitRange
+from gitscript.commit_range import CommitRange, CommitSelector
 from gitscript.refs import Ref, resolve, HeadRef
 from gitscript.commands import commit, commit_string, branch, checkout, reset, show, log, tag, cherry_pick, \
-    rebase, delete_branch, delete_tag, cherry_pick_range, revert, revert_range, log_range, rev_list, rev_list_range
+    rebase, delete_branch, delete_tag, cherry_pick_selectors, revert, revert_selectors, log_selectors, rev_list, \
+    rev_list_selectors
 from gitscript.operators import Condition, Operator
 from gitscript.repo import CommitBinding, Repo, RefBinding, protect_binding
 
@@ -251,12 +252,13 @@ class CherryPick(Statement):
         cherry_pick(repo, self.ref, self.op)
 
 class CherryPickRange(Statement):
-    def __init__(self, commit_range: CommitRange, op: Operator = Operator.THEIRS):
-        self.range = commit_range
+    def __init__(self, commit_range: CommitRange | list[CommitSelector], op: Operator = Operator.THEIRS):
+        self.selectors = commit_range if isinstance(commit_range, list) else [commit_range]
+        self.range = self.selectors[0] if len(self.selectors) == 1 and isinstance(self.selectors[0], CommitRange) else None
         self.op = op
 
     def run(self, repo: Repo):
-        cherry_pick_range(repo, self.range, self.op)
+        cherry_pick_selectors(repo, self.selectors, self.op)
 
 class Revert(Statement):
     def __init__(self, ref: Ref):
@@ -266,11 +268,12 @@ class Revert(Statement):
         revert(repo, self.ref)
 
 class RevertRange(Statement):
-    def __init__(self, commit_range: CommitRange):
-        self.range = commit_range
+    def __init__(self, commit_range: CommitRange | list[CommitSelector]):
+        self.selectors = commit_range if isinstance(commit_range, list) else [commit_range]
+        self.range = self.selectors[0] if len(self.selectors) == 1 and isinstance(self.selectors[0], CommitRange) else None
 
     def run(self, repo: Repo):
-        revert_range(repo, self.range)
+        revert_selectors(repo, self.selectors)
 
 class Rebase(Statement):
     def __init__(self, ref: Ref):
@@ -297,14 +300,21 @@ class Log(Statement):
         log(repo, self.ref, self.limit, self.reverse, self.oneline)
 
 class LogRange(Statement):
-    def __init__(self, commit_range: CommitRange, limit: Optional[int] = None, reverse: bool = False, oneline: bool = False):
-        self.commit_range = commit_range
+    def __init__(
+            self,
+            commit_range: CommitRange | list[CommitSelector],
+            limit: Optional[int] = None,
+            reverse: bool = False,
+            oneline: bool = False,
+    ):
+        self.selectors = commit_range if isinstance(commit_range, list) else [commit_range]
+        self.commit_range = self.selectors[0] if len(self.selectors) == 1 and isinstance(self.selectors[0], CommitRange) else None
         self.limit = limit
         self.reverse = reverse
         self.oneline = oneline
 
     def run(self, repo: Repo):
-        log_range(repo, self.commit_range, self.limit, self.reverse, self.oneline)
+        log_selectors(repo, self.selectors, self.limit, self.reverse, self.oneline)
 
 
 class RevList(Statement):
@@ -318,13 +328,19 @@ class RevList(Statement):
 
 
 class RevListRange(Statement):
-    def __init__(self, commit_range: CommitRange, limit: Optional[int] = None, reverse: bool = False):
-        self.commit_range = commit_range
+    def __init__(
+            self,
+            commit_range: CommitRange | list[CommitSelector],
+            limit: Optional[int] = None,
+            reverse: bool = False,
+    ):
+        self.selectors = commit_range if isinstance(commit_range, list) else [commit_range]
+        self.commit_range = self.selectors[0] if len(self.selectors) == 1 and isinstance(self.selectors[0], CommitRange) else None
         self.limit = limit
         self.reverse = reverse
 
     def run(self, repo: Repo):
-        rev_list_range(repo, self.commit_range, self.limit, self.reverse)
+        rev_list_selectors(repo, self.selectors, self.limit, self.reverse)
 
 
 class MergeContinue(Statement):
@@ -524,7 +540,7 @@ def _bind_parameter_value(
         bindings[value_text] = protect_binding(repo.bind_caller_branch(value), repo.visible_name(value))
     elif parameter.kind == "-t":
         bindings[value_text] = repo.bind_caller_tag(value)
-    elif parameter.kind == "-r":
+    elif parameter.kind == "-c":
         from gitscript.parser import _parse_ref
 
         bindings[value_text] = CommitBinding(_parse_ref(value, 0).resolve(repo))
@@ -557,9 +573,9 @@ def _validate_parameter_value(repo: Repo, parameter: Parameter, value: str) -> s
         if not repo.has_tag(value):
             raise RuntimeError(f"tag {value} does not exist")
         return _parameter_binding_name(parameter.name)
-    if parameter.kind == "-r":
-        return _parameter_binding_name(parameter.name)
     if parameter.kind == "-c":
+        return _parameter_binding_name(parameter.name)
+    if parameter.kind == "-m":
         if not any(condition.value == value for condition in Condition):
             raise RuntimeError(f"Unknown merge condition: {value}")
         return value

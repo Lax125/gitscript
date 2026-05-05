@@ -1,6 +1,6 @@
 import unittest
 
-from gitscript.commit_range import CommitRange
+from gitscript.commit_range import CommitRange, SymmetricDifferenceRange, resolve_commit_selectors
 from gitscript.commands import branch, checkout, commit
 from gitscript.refs import BranchRef, ConstantOffsetRef, HeadRef
 from gitscript.repo import Repo
@@ -38,6 +38,34 @@ class CommitRangeTests(unittest.TestCase):
         commits = CommitRange(BranchRef("main-tip"), BranchRef("feature")).resolve(repo)
 
         self.assertEqual([c.value for c in commits], [2])
+
+    def test_resolve_multiple_selectors_sorts_by_commit_creation_order(self):
+        repo = Repo()
+        commit(repo, 1)
+        branch(repo, "base")
+        commit(repo, 2)
+        branch(repo, "right")
+        checkout(repo, "base")
+        commit(repo, 3)
+        branch(repo, "left")
+
+        commits = resolve_commit_selectors(repo, [BranchRef("left"), BranchRef("right")], ref_includes_reachable=True)
+
+        self.assertEqual([c.value for c in commits], [3, 2, 1, 0])
+
+    def test_symmetric_difference_excludes_shared_reachable_commits(self):
+        repo = Repo()
+        commit(repo, 1)
+        branch(repo, "base")
+        commit(repo, 2)
+        branch(repo, "right")
+        checkout(repo, "base")
+        commit(repo, 3)
+        branch(repo, "left")
+
+        commits = SymmetricDifferenceRange(BranchRef("left"), BranchRef("right")).resolve(repo)
+
+        self.assertEqual([c.value for c in commits], [3, 2])
 
 
 if __name__ == "__main__":

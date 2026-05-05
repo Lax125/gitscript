@@ -1,6 +1,6 @@
 import unittest
 
-from gitscript.commit_range import CommitRange
+from gitscript.commit_range import CommitRange, SymmetricDifferenceRange
 from gitscript.refs import BranchRef, ConstantOffsetRef, DynamicOffsetRef, HeadRef
 from gitscript.operators import Condition, Operator
 from gitscript.parser import IncompleteInput, ParseError, parse, parse_repl
@@ -193,7 +193,7 @@ class ParserTests(unittest.TestCase):
             """
             git commit true && git commit false
             git config alias.cp 'cherry-pick'
-            git config alias.pick -l label -b target -p owner -t mark -r source -o strategy '!
+            git config alias.pick -l label -b target -p owner -t mark -c source -o strategy '!
                 git cherry-pick $source -s=$strategy && exit
             '
             git later new-label other main saved main max
@@ -218,7 +218,7 @@ class ParserTests(unittest.TestCase):
                 ("-b", "target"),
                 ("-p", "owner"),
                 ("-t", "mark"),
-                ("-r", "source"),
+                ("-c", "source"),
                 ("-o", "strategy"),
             ],
         )
@@ -384,11 +384,12 @@ class ParserTests(unittest.TestCase):
             """
             git cherry-pick HEAD~2..HEAD
             git cherry-pick HEAD~2..HEAD -s add
+            git cherry-pick HEAD^...HEAD HEAD
             git revert HEAD
-            git revert HEAD~2..HEAD
+            git revert HEAD~2..HEAD HEAD^
             git log -n 2 --reverse --oneline HEAD~2..HEAD
-            git rev-list -n=3 HEAD
-            git rev-list --reverse HEAD~2..HEAD
+            git rev-list -n=3 HEAD HEAD^
+            git rev-list --reverse HEAD~2..HEAD HEAD...main
             """
         )
 
@@ -397,17 +398,20 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(statements[0].op, Operator.THEIRS)
         self.assertIsInstance(statements[1], CherryPickRange)
         self.assertEqual(statements[1].op, Operator.ADD)
-        self.assertIsInstance(statements[2], Revert)
-        self.assertIsInstance(statements[3], RevertRange)
-        self.assertIsInstance(statements[3].range, CommitRange)
-        self.assertIsInstance(statements[4], LogRange)
-        self.assertEqual(statements[4].limit, 2)
-        self.assertTrue(statements[4].reverse)
-        self.assertTrue(statements[4].oneline)
-        self.assertIsInstance(statements[5], RevList)
-        self.assertEqual(statements[5].limit, 3)
+        self.assertIsInstance(statements[2], CherryPickRange)
+        self.assertIsInstance(statements[2].selectors[0], SymmetricDifferenceRange)
+        self.assertIsInstance(statements[3], Revert)
+        self.assertIsInstance(statements[4], RevertRange)
+        self.assertIsInstance(statements[4].selectors[0], CommitRange)
+        self.assertIsInstance(statements[5], LogRange)
+        self.assertEqual(statements[5].limit, 2)
+        self.assertTrue(statements[5].reverse)
+        self.assertTrue(statements[5].oneline)
         self.assertIsInstance(statements[6], RevListRange)
-        self.assertTrue(statements[6].reverse)
+        self.assertEqual(statements[6].limit, 3)
+        self.assertIsInstance(statements[7], RevListRange)
+        self.assertIsInstance(statements[7].selectors[1], SymmetricDifferenceRange)
+        self.assertTrue(statements[7].reverse)
 
     def test_parse_log_ref_options(self):
         statements = parse("git log --reverse --oneline -n 1 HEAD")

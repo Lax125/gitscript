@@ -26,7 +26,7 @@ git checkout -b prompt root
 git commit -m "Word (empty to sort): "
 
 # Given a word position, compute the start and end depths for that word.
-git config alias.bounds -r position -b start_depth -b end_depth -r word_count_ref -r fences_ref -r one_ref '!
+git config alias.bounds -c position -b start_depth -b end_depth -c word_count_ref -c fences_ref -c one_ref '!
     git branch index $word_count_ref
     git checkout index
     git cherry-pick $position -s=sub
@@ -44,7 +44,7 @@ git config alias.bounds -r position -b start_depth -b end_depth -r word_count_re
 
 # Compare two words lexicographically. comparison_ref is 1 if left sorts
 # before right, otherwise it is reset to root.
-git config alias.compare_words -r left_pos -r right_pos -b comparison_ref -r root_ref -r words_ref -r word_count_ref -r fences_ref -r one_ref '!
+git config alias.compare_words -c left_pos -c right_pos -b comparison_ref -c root_ref -c words_ref -c word_count_ref -c fences_ref -c one_ref '!
     git branch left_start $root_ref
     git branch left_end $root_ref
     git branch right_start $root_ref
