@@ -359,7 +359,7 @@ class ParserTests(unittest.TestCase):
             git cherry-pick HEAD~2..HEAD -s add
             git revert HEAD
             git revert HEAD~2..HEAD
-            git log -n 2 --reverse HEAD~2..HEAD
+            git log -n 2 --reverse --oneline HEAD~2..HEAD
             git rev-list -n=3 HEAD
             git rev-list --reverse HEAD~2..HEAD
             """
@@ -376,17 +376,22 @@ class ParserTests(unittest.TestCase):
         self.assertIsInstance(statements[4], LogRange)
         self.assertEqual(statements[4].limit, 2)
         self.assertTrue(statements[4].reverse)
+        self.assertTrue(statements[4].oneline)
         self.assertIsInstance(statements[5], RevList)
         self.assertEqual(statements[5].limit, 3)
         self.assertIsInstance(statements[6], RevListRange)
         self.assertTrue(statements[6].reverse)
 
     def test_parse_log_ref_options(self):
-        statements = parse("git log --reverse -n 1 HEAD")
+        statements = parse("git log --reverse --oneline -n 1 HEAD")
 
         self.assertIsInstance(statements[0], Log)
         self.assertEqual(statements[0].limit, 1)
         self.assertTrue(statements[0].reverse)
+        self.assertTrue(statements[0].oneline)
+
+        with self.assertRaises(ParseError):
+            parse("git rev-list --oneline HEAD")
 
     def test_refs_associate_right_to_left(self):
         statements = parse("git show HEAD~foo~1")

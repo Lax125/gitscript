@@ -449,8 +449,8 @@ Prints the value of a commit (default: `HEAD`).
 ### `git log`
 
 ```gitscript
-git log [-n <non-negative-int>] [--reverse] <commit-ref>
-git log [-n <non-negative-int>] [--reverse] <commit-range>
+git log [-n <non-negative-int>] [--reverse] [--oneline] <commit-ref>
+git log [-n <non-negative-int>] [--reverse] [--oneline] <commit-range>
 ```
 
 Prints characters from commits.
@@ -462,6 +462,8 @@ Traversal is:
 
 * default: newest to oldest
 * `--reverse`: oldest to newest
+
+By default, `git log` prints a trailing newline after the characters. `--oneline` omits that trailing newline, which is useful for prompts before `git commit` and `git commit -m` read from stdin.
 
 Each commit value is interpreted as a character.
 

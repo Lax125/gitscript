@@ -1,7 +1,10 @@
 git tag root
 
 # Read the starting value.
-git checkout -b n
+git checkout -b prompt root
+git commit -m "Initial number: "
+git log --oneline root..prompt
+git checkout -b n root
 git commit  # initial number
 
 # Constants used for parity and for the odd step.

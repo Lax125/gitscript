@@ -1,7 +1,10 @@
 git tag root
 
 # Read the requested sequence length.
-git checkout -b remaining
+git checkout -b prompt root
+git commit -m "Sequence length: "
+git log --oneline root..prompt
+git checkout -b remaining root
 git commit  # sequence length
 
 # Constants and working branches for the pair (a, b).

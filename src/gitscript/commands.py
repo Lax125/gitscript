@@ -98,11 +98,11 @@ def show(repo: Repo, ref: Ref):
     c = resolve(ref, repo)
     print(c.value)
 
-def log(repo: Repo, ref: Ref, limit: Optional[int] = None, reverse: bool = False):
-    print(_commits_to_string(_select_commits(_reachable_commits(resolve(ref, repo)), limit, reverse)))
+def log(repo: Repo, ref: Ref, limit: Optional[int] = None, reverse: bool = False, oneline: bool = False):
+    _print_string(_commits_to_string(_select_commits(_reachable_commits(resolve(ref, repo)), limit, reverse)), oneline)
 
-def log_range(repo: Repo, commit_range: CommitRange, limit: Optional[int] = None, reverse: bool = False):
-    print(_commits_to_string(_select_commits(commit_range.resolve(repo), limit, reverse)))
+def log_range(repo: Repo, commit_range: CommitRange, limit: Optional[int] = None, reverse: bool = False, oneline: bool = False):
+    _print_string(_commits_to_string(_select_commits(commit_range.resolve(repo), limit, reverse)), oneline)
 
 def rev_list(repo: Repo, ref: Ref, limit: Optional[int] = None, reverse: bool = False):
     _print_values(_select_commits(_reachable_commits(resolve(ref, repo)), limit, reverse))
@@ -129,6 +129,10 @@ def _select_commits(commits: list[Commit], limit: Optional[int], reverse: bool) 
 
 def _commits_to_string(commits: list[Commit]) -> str:
     return "".join(chr(c.value) for c in commits)
+
+
+def _print_string(text: str, oneline: bool) -> None:
+    print(text, end="" if oneline else "\n")
 
 
 def _print_values(commits: list[Commit]) -> None:

@@ -250,22 +250,24 @@ class Show(Statement):
         show(repo, self.ref)
 
 class Log(Statement):
-    def __init__(self, ref: Ref = HeadRef(), limit: Optional[int] = None, reverse: bool = False):
+    def __init__(self, ref: Ref = HeadRef(), limit: Optional[int] = None, reverse: bool = False, oneline: bool = False):
         self.ref = ref
         self.limit = limit
         self.reverse = reverse
+        self.oneline = oneline
 
     def run(self, repo: Repo):
-        log(repo, self.ref, self.limit, self.reverse)
+        log(repo, self.ref, self.limit, self.reverse, self.oneline)
 
 class LogRange(Statement):
-    def __init__(self, commit_range: CommitRange, limit: Optional[int] = None, reverse: bool = False):
+    def __init__(self, commit_range: CommitRange, limit: Optional[int] = None, reverse: bool = False, oneline: bool = False):
         self.commit_range = commit_range
         self.limit = limit
         self.reverse = reverse
+        self.oneline = oneline
 
     def run(self, repo: Repo):
-        log_range(repo, self.commit_range, self.limit, self.reverse)
+        log_range(repo, self.commit_range, self.limit, self.reverse, self.oneline)
 
 
 class RevList(Statement):

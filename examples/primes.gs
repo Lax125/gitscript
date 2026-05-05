@@ -1,7 +1,10 @@
 git tag root
 
 # Read the inclusive upper bound.
-git checkout -b max_value
+git checkout -b prompt root
+git commit -m "Max number: "
+git log --oneline root..prompt
+git checkout -b max_value root
 git commit  # maximum number to test
 
 # Start testing candidates at 2.

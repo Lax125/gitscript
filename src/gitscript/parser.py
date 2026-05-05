@@ -476,12 +476,12 @@ def _parse_statement(line: _Line) -> Statement | _MergeStart:
         stream.expect_done("git show")
         return Show(ref if ref is not None else HeadRef())
     if command.kind == TokenKind.LOG:
-        target, limit, reverse = _parse_list_args(stream, "git log")
+        target, limit, reverse, oneline = _parse_list_args(stream, "git log", allow_oneline=True)
         if isinstance(target, CommitRange):
-            return LogRange(target, limit, reverse)
-        return Log(target, limit, reverse)
+            return LogRange(target, limit, reverse, oneline)
+        return Log(target, limit, reverse, oneline)
     if command.kind == TokenKind.REV_LIST:
-        target, limit, reverse = _parse_list_args(stream, "git rev-list")
+        target, limit, reverse, _ = _parse_list_args(stream, "git rev-list")
         if isinstance(target, CommitRange):
             return RevListRange(target, limit, reverse)
         return RevList(target, limit, reverse)
@@ -855,14 +855,25 @@ def _parse_required_range_or_ref_argument(stream: _TokenCursor, command: str) ->
     return _parse_range_or_ref(token.value, stream.line_number)
 
 
-def _parse_list_args(stream: _TokenCursor, command: str) -> tuple[Ref | CommitRange, int | None, bool]:
+def _parse_list_args(
+        stream: _TokenCursor,
+        command: str,
+        allow_oneline: bool = False,
+) -> tuple[Ref | CommitRange, int | None, bool, bool]:
     limit = None
     reverse = False
+    oneline = False
     target: Ref | CommitRange | None = None
 
     while not stream.done:
         if stream.accept(TokenKind.OPTION, "--reverse"):
             reverse = True
+            continue
+
+        if stream.accept(TokenKind.OPTION, "--oneline"):
+            if not allow_oneline:
+                raise ParseError(f"Line {stream.line_number}: Unexpected {command} argument: --oneline")
+            oneline = True
             continue
 
         if stream.accept(TokenKind.OPTION, "-n"):
@@ -877,7 +888,7 @@ def _parse_list_args(stream: _TokenCursor, command: str) -> tuple[Ref | CommitRa
             raise ParseError(f"Line {stream.line_number}: {command} accepts only one ref or range")
         target = _parse_range_or_ref(stream.consume_argument(command).value, stream.line_number)
 
-    return target if target is not None else HeadRef(), limit, reverse
+    return target if target is not None else HeadRef(), limit, reverse, oneline
 
 
 def _parse_limit_token(token: Token, command: str) -> int:
@@ -1132,7 +1143,7 @@ def _validate_list_like_parameters(args: list[str], parameter_kinds: dict[str, s
         elif arg.startswith("-n="):
             _require_parameter_kinds(arg[3:], parameter_kinds, {"-i"}, line_number, "list limit")
             i += 1
-        elif arg == "--reverse":
+        elif arg in {"--reverse", "--oneline"}:
             i += 1
         else:
             _require_parameter_kinds(arg, parameter_kinds, _REF_PARAMETER_KINDS, line_number, "commit reference")
@@ -1276,4 +1287,3 @@ def _commit_message_start(text: str) -> int | None:
         index = text.find("-m", index + 1)
 
     return None
-

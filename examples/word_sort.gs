@@ -22,6 +22,8 @@ git branch have_candidate root
 git branch comparison root
 git branch selected_start root
 git branch selected_end root
+git checkout -b prompt root
+git commit -m "Word (empty to sort): "
 
 # Given a word position, compute the start and end depths for that word.
 git config alias.bounds -r position -b start_depth -b end_depth -r word_count_ref -r fences_ref -r one_ref '!
@@ -98,6 +100,7 @@ git config alias.compare_words -r left_pos -r right_pos -b comparison_ref -r roo
 '
 
 # Read words one at a time; an empty line ends input.
+git log --oneline root..prompt
 git checkout word
 git commit -m
 
@@ -111,6 +114,7 @@ git merge -s is read
 
     git checkout word
     git reset root
+    git log --oneline root..prompt
     git commit -m
     git merge --continue read
 >>>>>>> root

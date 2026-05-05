@@ -5,6 +5,9 @@ git checkout -b space root
 git commit -m " "
 
 # Read the sentence to reverse.
+git checkout -b prompt root
+git commit -m "Sentence: "
+git log --oneline root..prompt
 git checkout -b input root
 git commit -m  # sentence to reverse
 

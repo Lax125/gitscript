@@ -218,6 +218,14 @@ class StatementTests(unittest.TestCase):
 
         self.assertEqual(output, "BC\n")
 
+    def test_log_supports_oneline(self):
+        repo = Repo()
+        CommitString("Prompt: ").run(repo)
+
+        output = capture_output(LogRange(CommitRange(ConstantOffsetRef(HeadRef(), 8), HeadRef()), oneline=True), repo)
+
+        self.assertEqual(output, "Prompt: ")
+
     def test_rev_list_prints_values(self):
         repo = Repo()
         Commit(1, amend=False).run(repo)

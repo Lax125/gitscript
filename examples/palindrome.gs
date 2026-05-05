@@ -1,7 +1,10 @@
 git tag root
 
 # Read the candidate word, then keep a tag to the original input for output.
-git checkout -b input
+git checkout -b prompt root
+git commit -m "Word: "
+git log --oneline root..prompt
+git checkout -b input root
 git commit -m
 git tag original_input
 
