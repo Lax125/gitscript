@@ -306,29 +306,34 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(statements[3].branch_name, "feature")
         self.assertIsInstance(statements[3].create_at, ConstantOffsetRef)
 
-    def test_branch_and_tag_names_allow_restricted_character_set_and_keywords(self):
+    def test_branch_and_tag_names_allow_restricted_character_set(self):
         statements = parse(
             """
             git branch feature/path-1_ok
-            git checkout -b git
-            git branch commit
-            git tag merge
-            git branch -d feature/path-1_ok git commit
-            git tag -d merge
+            git checkout -b feature2
+            git branch branch3
+            git tag tag4
+            git branch -d feature/path-1_ok feature2 branch3
+            git tag -d tag4
             """
         )
 
         self.assertEqual(statements[0].branch_name, "feature/path-1_ok")
-        self.assertEqual(statements[1].branch_name, "git")
-        self.assertEqual(statements[2].branch_name, "commit")
-        self.assertEqual(statements[3].tag_name, "merge")
-        self.assertEqual(statements[4].branch_names, ["feature/path-1_ok", "git", "commit"])
-        self.assertEqual(statements[5].tag_names, ["merge"])
+        self.assertEqual(statements[1].branch_name, "feature2")
+        self.assertEqual(statements[2].branch_name, "branch3")
+        self.assertEqual(statements[3].tag_name, "tag4")
+        self.assertEqual(statements[4].branch_names, ["feature/path-1_ok", "feature2", "branch3"])
+        self.assertEqual(statements[5].tag_names, ["tag4"])
 
     def test_branch_tag_and_ref_names_reject_invalid_names(self):
         invalid_sources = [
             "git branch HEAD",
             "git tag HEAD",
+            "git branch git",
+            "git tag commit",
+            "git checkout -b merge",
+            "git branch max",
+            "git tag is",
             "git checkout -b -bad",
             "git branch bad.name",
             "git tag bad@name",

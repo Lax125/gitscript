@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from gitscript.commit_range import CommitRange
-from gitscript.lexer import LexError, Token, TokenKind, lex_statement, strip_comment
+from gitscript.lexer import LexError, Token, TokenKind, is_identifier_text, lex_statement, strip_comment
 from gitscript.refs import BranchRef, ConstantOffsetRef, DynamicOffsetRef, HeadRef, Ref
 from gitscript.operators import Condition, Operator
 from gitscript.statements import (
@@ -243,6 +243,40 @@ def _lex_statement(text: str, line_number: int) -> list[Token]:
 
 
 def _token_values(tokens: list[Token]) -> list[str]:
+    return [token.value for token in _argument_tokens(tokens)]
+
+
+def _argument_tokens(tokens: list[Token]) -> list[Token]:
+    arguments: list[Token] = []
+    i = 0
+    while i < len(tokens):
+        group = tokens[i].group
+        grouped = [tokens[i]]
+        i += 1
+        while i < len(tokens) and tokens[i].group == group:
+            grouped.append(tokens[i])
+            i += 1
+
+        if len(grouped) == 1:
+            arguments.append(grouped[0])
+            continue
+
+        quoted = next((token for token in grouped if token.quoted), None)
+        arguments.append(
+            Token(
+                grouped[0].kind,
+                "".join(token.value for token in grouped),
+                grouped[0].line,
+                grouped[0].column,
+                quoted is not None,
+                quoted.quote if quoted is not None else None,
+                group,
+            )
+        )
+    return arguments
+
+
+def _raw_token_values(tokens: list[Token]) -> list[str]:
     return [token.value for token in tokens]
 
 
@@ -256,7 +290,7 @@ def _parse_statement(line: _Line) -> Statement | _MergeStart:
     if raw == "exit":
         return Exit()
 
-    tokens = _lex_statement(raw, line.number)
+    tokens = _argument_tokens(_lex_statement(raw, line.number))
     if len(tokens) < 2 or tokens[0].value != "git":
         raise ParseError(f"Line {line.number}: Expected a git command")
 
@@ -598,6 +632,8 @@ def _parse_name(text: str, line_number: int, kind: str) -> str:
         raise ParseError(
             f"Line {line_number}: {kind} name may contain only A-Z, a-z, 0-9, -, _, and /"
         )
+    if not is_identifier_text(text):
+        raise ParseError(f"Line {line_number}: {kind} name cannot be a keyword or operator")
     return text
 
 
@@ -693,6 +729,8 @@ def _parse_ref_atom(tokens: "_RefTokens") -> Ref:
         return ref
     if token in {"~", ")"}:
         raise ParseError(f"Line {tokens.line_number}: Expected commit reference before {token}")
+    if token.isdecimal():
+        return BranchRef(token)
     return BranchRef(_parse_name(token, tokens.line_number, "ref"))
 
 
@@ -930,7 +968,7 @@ class _RefTokens:
     def peek(self) -> str | None:
         if self.done:
             return None
-        return self.tokens[self.index]
+        return self.tokens[self.index].value
 
     def next(self) -> str | None:
         token = self.peek()
@@ -945,27 +983,10 @@ class _RefTokens:
         return False
 
 
-def _tokenize_ref(text: str, line_number: int) -> list[str]:
-    tokens: list[str] = []
-    i = 0
-    while i < len(text):
-        char = text[i]
-        if char.isspace():
-            i += 1
-            continue
-        if char in "()~":
-            tokens.append(char)
-            i += 1
-            continue
-
-        start = i
-        while i < len(text) and not text[i].isspace() and text[i] not in "()~":
-            i += 1
-        token = text[start:i]
-        if token.startswith("-"):
-            raise ParseError(f"Line {line_number}: Negative offsets are not valid syntax")
-        tokens.append(token)
-
+def _tokenize_ref(text: str, line_number: int) -> list[Token]:
+    tokens = _lex_statement(text, line_number)
+    if any(token.value.startswith("-") for token in tokens):
+        raise ParseError(f"Line {line_number}: Negative offsets are not valid syntax")
     if not tokens:
         raise ParseError(f"Line {line_number}: Expected commit reference")
     return tokens

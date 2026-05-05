@@ -1,7 +1,7 @@
 git tag root
 
 # Read the inclusive upper bound.
-git checkout -b max
+git checkout -b max_value
 git commit  # maximum number to test
 
 # Start testing candidates at 2.
@@ -62,7 +62,7 @@ git merge -s <=
     git merge --continue
 =======
     git merge --abort
->>>>>>> max
+>>>>>>> max_value
 
 # Print the primes in ascending order.
 git rev-list --reverse root..primes

@@ -33,17 +33,18 @@ HEAD~(foo~1)
 
 ---
 
-## Branch and Tag Names
+## Identifiers
 
-Branch and tag names are intentionally simpler than real Git refs.
+Branch names, tag names, alias names, and parameter names are intentionally simpler than real Git refs.
 
 Valid names:
 
 * may contain only `A-Z`, `a-z`, `0-9`, `-`, `_`, and `/`
 * may not start with `-`
 * may not be `HEAD`, because `HEAD` always means the current branch tip
+* may not be a GitScript keyword, operator, merge condition, or cherry-pick strategy
 
-Other Git words are ordinary names. For example, `git`, `commit`, and `merge` are valid branch or tag names.
+For example, `git`, `commit`, `merge`, `is`, and `max` are not valid branch or tag names.
 
 ---
 
@@ -826,6 +827,8 @@ git show
 ```
 
 A merge-conflict control structure is one statement for this purpose. The `git merge [-s <condition>] [<label>]` line and its corresponding conflict markers and blocks stay together as a single statement, even though the statement spans multiple lines.
+
+Lexically, newlines, `&&`, and merge-conflict markers are statement separators.
 
 Conflict markers are forced to stay on their own physical lines. `&&` is not allowed before or after:
 
