@@ -516,7 +516,7 @@ Each commit value is interpreted as a character.
 
 Each graph line represents one selected commit. The line includes:
 
-* an ASCII ancestry graph showing the parent relationship between visible selected commits
+* a box-drawing ancestry graph showing the parent relationship between visible selected commits
 * a marker for the current `HEAD` commit
 * every visible branch that points at that commit
 * every visible tag that points at that commit
@@ -528,17 +528,18 @@ The character value is shown in a human-readable escaped form so graph output re
 
 Refs not visible in the current execution frame are not shown. Local function refs that have gone out of scope are not shown. Commit parameters are shown because `-c` parameters are evaluated at function-call time and bind a concrete commit for the callee.
 
-The exact ASCII edge layout is implementation-defined, but the graph is stable for a given selected set and creation history. Ref annotations are diagnostic text only; their semantic purpose is to identify what names in the current frame point to each visible commit.
+Once history branches, that line of commits is drawn in a separate column. GitScript uses the first free column to the left, or creates a new left column if no free column is available. If selected commits come from unrelated histories, each unrelated history is also drawn in a separate column.
+
+The exact edge layout is implementation-defined, but the graph is stable for a given selected set and creation history. Ref annotations are diagnostic text only; their semantic purpose is to identify what names in the current frame point to each visible commit.
 
 Example shape:
 
 ```text
 * 7 value=65 char='A' [HEAD -> feature, tag:done, param:source]
-| * 6 value=66 char='B' [param:other]
-| | * 5 value=67 char='C' [tag:other2]
-| |/
-|/
-* 4 value=10 char='\n' [main !]
+┃ * 6 value=66 char='B' [param:other]
+┣━┿━* 5 value=67 char='C' [tag:other2]
+┣━* 4 value=68 char='D' [branch:other3]
+* 3 value=10 char='\n' [main !]
 * 1 value=0 char='\0'
 ```
 

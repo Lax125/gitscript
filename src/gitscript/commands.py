@@ -106,11 +106,29 @@ def show(repo: Repo, ref: Ref):
     c = resolve(ref, repo)
     print(c.value)
 
-def log(repo: Repo, ref: Ref, limit: Optional[int] = None, reverse: bool = False, oneline: bool = False):
-    _print_string(_commits_to_string(_select_commits(resolve_commit_selectors(repo, [ref], True), limit, reverse)), oneline)
+def log(
+        repo: Repo,
+        ref: Ref,
+        limit: Optional[int] = None,
+        reverse: bool = False,
+        oneline: bool = False,
+        graph: bool = False,
+):
+    commits = _select_commits(resolve_commit_selectors(repo, [ref], True), limit, reverse)
+    if graph:
+        _print_graph(repo, commits)
+        return
+    _print_string(_commits_to_string(commits), oneline)
 
-def log_range(repo: Repo, commit_range: CommitRange, limit: Optional[int] = None, reverse: bool = False, oneline: bool = False):
-    log_selectors(repo, [commit_range], limit, reverse, oneline)
+def log_range(
+        repo: Repo,
+        commit_range: CommitRange,
+        limit: Optional[int] = None,
+        reverse: bool = False,
+        oneline: bool = False,
+        graph: bool = False,
+):
+    log_selectors(repo, [commit_range], limit, reverse, oneline, graph)
 
 def log_selectors(
         repo: Repo,
@@ -118,9 +136,14 @@ def log_selectors(
         limit: Optional[int] = None,
         reverse: bool = False,
         oneline: bool = False,
+        graph: bool = False,
 ):
     commits = resolve_commit_selectors(repo, selectors, ref_includes_reachable=True)
-    _print_string(_commits_to_string(_select_commits(commits, limit, reverse)), oneline)
+    commits = _select_commits(commits, limit, reverse)
+    if graph:
+        _print_graph(repo, commits)
+        return
+    _print_string(_commits_to_string(commits), oneline)
 
 def rev_list(repo: Repo, ref: Ref, limit: Optional[int] = None, reverse: bool = False):
     _print_values(_select_commits(resolve_commit_selectors(repo, [ref], True), limit, reverse))
@@ -157,6 +180,115 @@ def _print_string(text: str, oneline: bool) -> None:
 def _print_values(commits: list[Commit]) -> None:
     for c in commits:
         print(c.value)
+
+
+_ENDED_COLUMN = object()
+
+
+def _print_graph(repo: Repo, commits: list[Commit]) -> None:
+    selected = set(commits)
+    annotations = repo.visible_commit_annotations()
+    columns: list[Commit | object | None] = []
+
+    for c in commits:
+        column = _find_column(columns, c)
+        if column is None:
+            column = _allocate_column(columns)
+
+        parent = c.parent
+        parent_column = _find_column(columns, parent)
+
+        print(f"{_graph_prefix(columns, column, parent_column)}{c.order} value={c.value} char='{_format_graph_char(c.value)}'{_format_annotations(annotations.get(c, []))}")
+
+        # clear ended columns first so they can be reused
+        _clear_ended_columns(columns)
+
+        if parent in selected:
+            if parent_column is None:
+                columns[column] = parent
+            elif parent_column != column:
+                columns[column] = _ENDED_COLUMN
+        else:
+            columns[column] = _ENDED_COLUMN
+
+        if columns[-1] is None:
+            columns.pop()
+
+
+def _find_column(columns: list[Commit | object | None], c: Commit) -> int | None:
+    if c is None:
+        return None
+    for i, column_commit in enumerate(columns):
+        if column_commit is c:
+            return i
+    return None
+
+
+def _allocate_column(columns: list[Commit | object | None]) -> int:
+    for i in range(len(columns)):
+        if columns[i] is None:
+            return i
+    columns.append(None)
+    return len(columns) - 1
+
+
+def _clear_ended_columns(columns: list[Commit | object | None]) -> None:
+    for i in range(len(columns)):
+        if columns[i] is _ENDED_COLUMN:
+            columns[i] = None
+
+
+def _graph_prefix(columns: list[Commit | object | None], commit_column: int, parent_column: int | None) -> str:
+    columns_to_print = columns.copy()
+    while len(columns_to_print) > commit_column and columns_to_print[-1] in {None, _ENDED_COLUMN}:
+        columns_to_print.pop()
+
+    cells = []
+    for i in range(len(columns_to_print)):
+        if i == commit_column:
+            cells.append("* ")
+        elif i == parent_column:
+            cells.append("┣━")
+        elif columns_to_print[i] is not None and columns_to_print[i] is not _ENDED_COLUMN:
+            if parent_column is not None and parent_column < i < commit_column:
+                cells.append("┿━")
+            else:
+                cells.append("┃ ")
+        elif parent_column is not None and parent_column < i < commit_column:
+            cells.append("━━")
+        else:
+            cells.append("  ")
+    return "".join(cells)
+
+
+def _format_annotations(annotations: list[str]) -> str:
+    if not annotations:
+        return ""
+    return f" [{', '.join(annotations)}]"
+
+
+def _format_graph_char(value: int) -> str:
+    try:
+        char = chr(value)
+    except ValueError:
+        return "?"
+    if char == "\0":
+        return "\\0"
+    if char == "\n":
+        return "\\n"
+    if char == "\r":
+        return "\\r"
+    if char == "\t":
+        return "\\t"
+    if char == "\\":
+        return "\\\\"
+    if char == "'":
+        return "\\'"
+    if char.isprintable():
+        return char
+    if 0 <= value <= 0xFF:
+        return f"\\x{value:02x}"
+    return f"\\u{value:04x}"
 
 
 def _create_commit(repo: Repo, value: int, parent: Optional[Commit], operation: str) -> Commit:

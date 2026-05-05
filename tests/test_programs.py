@@ -281,6 +281,88 @@ git log HEAD~19..HEAD
         self.assertEqual(output, "1\n3\n2\n-2\n")
         self.assertEqual(repo.branches["main"].value, -2)
 
+    def test_git_log_graph_shows_values_chars_and_visible_refs(self):
+        repo, output = run_program(
+            """
+            git tag root
+            git commit 65
+            git tag letter
+            git commit 10
+            git branch mark
+            git log --graph HEAD
+            """
+        )
+
+        self.assertEqual(
+            output,
+            "* 2 value=10 char='\\n' [HEAD -> main !, branch:mark]\n"
+            "* 1 value=65 char='A' [tag:letter]\n"
+            "* 0 value=0 char='\\0' [tag:root]\n",
+        )
+        self.assertEqual(repo.branches["main"].value, 10)
+
+    def test_git_log_graph_uses_separate_columns_for_branches(self):
+        repo, output = run_program(
+            """
+            git commit 1
+            git branch base
+            git commit 2
+            git branch right
+            git checkout -b left base
+            git commit 3
+            git log --graph left right
+            """
+        )
+
+        self.assertEqual(
+            output,
+            "* 3 value=3 char='\\x03' [HEAD -> left]\n"
+            "* ┃ 2 value=2 char='\\x02' [branch:main !, branch:right]\n"
+            "  * 1 value=1 char='\\x01' [branch:base]\n"
+            "  * 0 value=0 char='\\0'\n",
+        )
+        self.assertEqual(repo.branches["left"].value, 3)
+
+    def test_git_log_graph_uses_separate_columns_for_unrelated_histories(self):
+        repo, output = run_program(
+            """
+            git tag original
+            git commit --amend 1
+            git branch one
+            git checkout -b two original
+            git commit --amend 2
+            git log --graph one two
+            """
+        )
+
+        self.assertEqual(
+            output,
+            "* 2 value=2 char='\\x02' [HEAD -> two]\n"
+            "*   1 value=1 char='\\x01' [branch:main !, branch:one]\n",
+        )
+        self.assertEqual(repo.branches["two"].value, 2)
+
+    def test_git_log_graph_shows_commit_parameters_in_function_frames(self):
+        repo, output = run_program(
+            """
+            git commit 65
+            git branch source
+            git commit 66
+            git config alias.inspect -c selected '!
+                git log --graph $selected HEAD
+            '
+            git inspect source
+            """
+        )
+
+        self.assertEqual(
+            output,
+            "* 2 value=66 char='B' [HEAD -> main !]\n"
+            "* 1 value=65 char='A' [param:selected]\n"
+            "* 0 value=0 char='\\0'\n",
+        )
+        self.assertEqual(repo.branches["main"].value, 66)
+
     def test_cherry_pick_and_revert_ref_and_range(self):
         repo, output = run_program(
             """

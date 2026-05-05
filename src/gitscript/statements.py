@@ -290,14 +290,22 @@ class Show(Statement):
         show(repo, self.ref)
 
 class Log(Statement):
-    def __init__(self, ref: Ref = HeadRef(), limit: Optional[int] = None, reverse: bool = False, oneline: bool = False):
+    def __init__(
+            self,
+            ref: Ref = HeadRef(),
+            limit: Optional[int] = None,
+            reverse: bool = False,
+            oneline: bool = False,
+            graph: bool = False,
+    ):
         self.ref = ref
         self.limit = limit
         self.reverse = reverse
         self.oneline = oneline
+        self.graph = graph
 
     def run(self, repo: Repo):
-        log(repo, self.ref, self.limit, self.reverse, self.oneline)
+        log(repo, self.ref, self.limit, self.reverse, self.oneline, self.graph)
 
 class LogRange(Statement):
     def __init__(
@@ -306,15 +314,17 @@ class LogRange(Statement):
             limit: Optional[int] = None,
             reverse: bool = False,
             oneline: bool = False,
+            graph: bool = False,
     ):
         self.selectors = commit_range if isinstance(commit_range, list) else [commit_range]
         self.commit_range = self.selectors[0] if len(self.selectors) == 1 and isinstance(self.selectors[0], CommitRange) else None
         self.limit = limit
         self.reverse = reverse
         self.oneline = oneline
+        self.graph = graph
 
     def run(self, repo: Repo):
-        log_selectors(repo, self.selectors, self.limit, self.reverse, self.oneline)
+        log_selectors(repo, self.selectors, self.limit, self.reverse, self.oneline, self.graph)
 
 
 class RevList(Statement):

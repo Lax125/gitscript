@@ -510,6 +510,65 @@ class Repo:
             names.add(frame.caller_head)
         return names
 
+    def visible_commit_annotations(self) -> dict[Commit, list[str]]:
+        annotations: dict[Commit, list[str]] = {}
+
+        def add(commit: Commit, label: str) -> None:
+            annotations.setdefault(commit, []).append(label)
+
+        frame = self.current_frame()
+        if frame is None:
+            for name, commit in self.branches.items():
+                label = f"HEAD -> {name}" if name == self.HEAD else f"branch:{name}"
+                if name == "main":
+                    label += " !"
+                add(commit, label)
+            for name, commit in self.tags.items():
+                add(commit, f"tag:{name}")
+            return annotations
+
+        if "main" in frame.bindings:
+            self._add_binding_annotation(annotations, "main", frame.bindings["main"])
+
+        for name, commit in frame.branches.items():
+            label = f"HEAD -> {name}" if name == self.HEAD else f"branch:{name}"
+            add(commit, label)
+
+        for name, commit in frame.tags.items():
+            add(commit, f"tag:{name}")
+
+        commit_parameter_names = {
+            value: name
+            for name, value in frame.parameters.items()
+            if value in frame.bindings and isinstance(frame.bindings[value], CommitBinding)
+        }
+
+        for name, binding in frame.bindings.items():
+            if name == "main":
+                continue
+            if isinstance(binding, CommitBinding):
+                add(binding.resolve(), f"param:{commit_parameter_names.get(name, self.visible_name(name))}")
+                continue
+            self._add_binding_annotation(annotations, name, binding)
+
+        return annotations
+
+    def _add_binding_annotation(
+            self,
+            annotations: dict[Commit, list[str]],
+            name: str,
+            binding: RefBinding,
+    ) -> None:
+        if binding.is_branch():
+            visible = self.visible_name(name)
+            label = f"HEAD -> {visible}" if name == self.HEAD else f"branch:{visible}"
+            if binding.is_protected():
+                label += " !"
+            annotations.setdefault(binding.resolve(), []).append(label)
+            return
+        if binding.is_tag():
+            annotations.setdefault(binding.resolve(), []).append(f"tag:{self.visible_name(name)}")
+
     def _binding(self, name: str) -> RefBinding | None:
         frame = self.current_frame()
         if frame is None:

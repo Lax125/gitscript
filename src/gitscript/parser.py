@@ -548,12 +548,12 @@ def _parse_simple_statement(tokens: list[Token], line_number: int) -> Statement 
         stream.expect_done("git show")
         return Show(ref if ref is not None else HeadRef())
     if command.kind == TokenKind.LOG:
-        selectors, limit, reverse, oneline = _parse_list_args(stream, "git log", allow_oneline=True)
+        selectors, limit, reverse, oneline, graph = _parse_list_args(stream, "git log", allow_oneline=True, allow_graph=True)
         if len(selectors) == 1 and not isinstance(selectors[0], (CommitRange, SymmetricDifferenceRange)):
-            return Log(selectors[0], limit, reverse, oneline)
-        return LogRange(selectors, limit, reverse, oneline)
+            return Log(selectors[0], limit, reverse, oneline, graph)
+        return LogRange(selectors, limit, reverse, oneline, graph)
     if command.kind == TokenKind.REV_LIST:
-        selectors, limit, reverse, _ = _parse_list_args(stream, "git rev-list")
+        selectors, limit, reverse, _, _ = _parse_list_args(stream, "git rev-list")
         if len(selectors) == 1 and not isinstance(selectors[0], (CommitRange, SymmetricDifferenceRange)):
             return RevList(selectors[0], limit, reverse)
         return RevListRange(selectors, limit, reverse)
@@ -920,10 +920,12 @@ def _parse_list_args(
         stream: _TokenCursor,
         command: str,
         allow_oneline: bool = False,
-) -> tuple[list[CommitSelector], int | None, bool, bool]:
+        allow_graph: bool = False,
+) -> tuple[list[CommitSelector], int | None, bool, bool, bool]:
     limit = None
     reverse = False
     oneline = False
+    graph = False
     selectors: list[CommitSelector] = []
 
     while not stream.done:
@@ -935,6 +937,12 @@ def _parse_list_args(
             if not allow_oneline:
                 raise ParseError(f"Line {stream.line_number}: Unexpected {command} argument: --oneline")
             oneline = True
+            continue
+
+        if stream.accept(TokenKind.OPTION, "--graph"):
+            if not allow_graph:
+                raise ParseError(f"Line {stream.line_number}: Unexpected {command} argument: --graph")
+            graph = True
             continue
 
         if stream.accept(TokenKind.OPTION, "-n"):
@@ -949,7 +957,11 @@ def _parse_list_args(
 
     if not selectors:
         raise ParseError(f"Line {stream.line_number}: {command} needs at least one commit selector")
-    return selectors, limit, reverse, oneline
+    if graph and reverse:
+        raise ParseError(f"Line {stream.line_number}: {command} --graph cannot be used with --reverse")
+    if graph and oneline:
+        raise ParseError(f"Line {stream.line_number}: {command} --graph cannot be used with --oneline")
+    return selectors, limit, reverse, oneline, graph
 
 
 def _parse_limit_token(token: Token, command: str) -> int:
@@ -1215,7 +1227,7 @@ def _validate_list_like_parameters(args: list[str], parameter_kinds: dict[str, s
         elif arg.startswith("-n="):
             _require_parameter_kinds(arg[3:], parameter_kinds, {"-i"}, line_number, "list limit")
             i += 1
-        elif arg in {"--reverse", "--oneline"}:
+        elif arg in {"--reverse", "--oneline", "--graph"}:
             i += 1
         else:
             _require_parameter_kinds(arg, parameter_kinds, _REF_PARAMETER_KINDS, line_number, "commit selector")

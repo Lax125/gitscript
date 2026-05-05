@@ -421,8 +421,19 @@ class ParserTests(unittest.TestCase):
         self.assertTrue(statements[0].reverse)
         self.assertTrue(statements[0].oneline)
 
+        statements = parse("git log --graph -n 1 HEAD")
+        self.assertIsInstance(statements[0], Log)
+        self.assertEqual(statements[0].limit, 1)
+        self.assertTrue(statements[0].graph)
+
         with self.assertRaises(ParseError):
             parse("git rev-list --oneline HEAD")
+        with self.assertRaises(ParseError):
+            parse("git rev-list --graph HEAD")
+        with self.assertRaises(ParseError):
+            parse("git log --graph --reverse HEAD")
+        with self.assertRaises(ParseError):
+            parse("git log --graph --oneline HEAD")
 
     def test_refs_associate_right_to_left(self):
         statements = parse("git show HEAD~foo~1")
