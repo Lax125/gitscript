@@ -60,7 +60,7 @@ git log HEAD~19..HEAD
             'git commit -m\n'
             'git log root..HEAD\n'
             'git commit 0\n'
-            'git log -n 1 HEAD\n',
+            'git log -n 1\n',
             inputs=["Yo"],
         )
 
@@ -122,7 +122,7 @@ git log HEAD~19..HEAD
             """
         )
 
-        self.assertEqual(output, "   main !\n * feature\n")
+        self.assertEqual(output, "   main!\n * feature\n")
         self.assertEqual(repo.HEAD, "feature")
 
     def test_all_cherry_pick_strategies(self):
@@ -219,6 +219,18 @@ git log HEAD~19..HEAD
         self.assertEqual(output, "\x00BA\nB\x00\n0\n66\n65\n65\n66\n0\n")
         self.assertEqual(repo.branches["main"].value, 0)
 
+    def test_log_and_rev_list_default_to_head(self):
+        repo, output = run_program(
+            """
+            git commit -m "Hi"
+            git log --oneline
+            git rev-list -n 2
+            """
+        )
+
+        self.assertEqual(output, "Hi\x0072\n105\n")
+        self.assertEqual(repo.branches["main"].value, ord("H"))
+
     def test_multiple_commit_selectors_include_and_exclude_for_log_and_rev_list(self):
         repo, output = run_program(
             """
@@ -289,13 +301,13 @@ git log HEAD~19..HEAD
             git tag letter
             git commit 10
             git branch mark
-            git log --graph HEAD
+            git log --graph
             """
         )
 
         self.assertEqual(
             output,
-            "* 2 value=10 char='\\n' [HEAD -> main !, branch:mark]\n"
+            "* 2 value=10 char='\\n' [HEAD -> main!, branch:mark]\n"
             "* 1 value=65 char='A' [tag:letter]\n"
             "* 0 value=0 char='\\0' [tag:root]\n",
         )
@@ -317,9 +329,9 @@ git log HEAD~19..HEAD
         self.assertEqual(
             output,
             "* 3 value=3 char='\\x03' [HEAD -> left]\n"
-            "* ┃ 2 value=2 char='\\x02' [branch:main !, branch:right]\n"
-            "  * 1 value=1 char='\\x01' [branch:base]\n"
-            "  * 0 value=0 char='\\0'\n",
+            "┣━* 2 value=2 char='\\x02' [branch:main!, branch:right]\n"
+            "* 1 value=1 char='\\x01' [branch:base]\n"
+            "* 0 value=0 char='\\0'\n",
         )
         self.assertEqual(repo.branches["left"].value, 3)
 
@@ -338,7 +350,7 @@ git log HEAD~19..HEAD
         self.assertEqual(
             output,
             "* 2 value=2 char='\\x02' [HEAD -> two]\n"
-            "*   1 value=1 char='\\x01' [branch:main !, branch:one]\n",
+            "  * 1 value=1 char='\\x01' [branch:main!, branch:one]\n",
         )
         self.assertEqual(repo.branches["two"].value, 2)
 
@@ -357,11 +369,86 @@ git log HEAD~19..HEAD
 
         self.assertEqual(
             output,
-            "* 2 value=66 char='B' [HEAD -> main !]\n"
+            "* 2 value=66 char='B' [HEAD -> main!]\n"
             "* 1 value=65 char='A' [param:selected]\n"
             "* 0 value=0 char='\\0'\n",
         )
         self.assertEqual(repo.branches["main"].value, 66)
+
+    def test_git_log_graph_keeps_converging_branches_readable(self):
+        repo, output = run_program(
+            """
+            git tag root
+            git commit 1
+            git checkout -b a root
+            git commit 2
+            git commit 3
+            git checkout main
+            git commit 4
+            git checkout -b b root
+            git commit 5
+            git log --graph a b main
+            """
+        )
+
+        self.assertEqual(
+            output,
+            "* 5 value=5 char='\\x05' [HEAD -> b]\n"
+            "┃ * 4 value=4 char='\\x04' [branch:main!]\n"
+            "┃ ┃ * 3 value=3 char='\\x03' [branch:a]\n"
+            "┣━┿━* 2 value=2 char='\\x02'\n"
+            "┣━* 1 value=1 char='\\x01'\n"
+            "* 0 value=0 char='\\0' [tag:root]\n",
+        )
+        self.assertEqual(repo.branches["b"].value, 5)
+
+    def test_git_log_graph_reuses_ended_columns_after_one_row(self):
+        repo, output = run_program(
+            """
+            git tag root
+            git commit 1
+            git checkout -b a root
+            git commit 2
+            git checkout -b b root
+            git commit 3
+            git checkout -b c root
+            git commit 4
+            git log --graph main a b c
+            """
+        )
+
+        self.assertEqual(
+            output,
+            "* 4 value=4 char='\\x04' [HEAD -> c]\n"
+            "┣━* 3 value=3 char='\\x03' [branch:b]\n"
+            "┣━━━* 2 value=2 char='\\x02' [branch:a]\n"
+            "┣━* 1 value=1 char='\\x01' [branch:main!]\n"
+            "* 0 value=0 char='\\0' [tag:root]\n",
+        )
+        self.assertEqual(repo.branches["c"].value, 4)
+
+    def test_git_log_graph_handles_limited_and_symdiff_selections(self):
+        repo, output = run_program(
+            """
+            git commit 1
+            git branch base
+            git commit 2
+            git branch right
+            git checkout -b left base
+            git commit 3
+            git log --graph -n 2 left right
+            git log --graph left...right
+            """
+        )
+
+        self.assertEqual(
+            output,
+            "* 3 value=3 char='\\x03' [HEAD -> left]\n"
+            "  * 2 value=2 char='\\x02' [branch:main!, branch:right]\n"
+            "* 3 value=3 char='\\x03' [HEAD -> left]\n"
+            "  * 2 value=2 char='\\x02' [branch:main!, branch:right]\n",
+        )
+        self.assertEqual(repo.branches["left"].value, 3)
 
     def test_cherry_pick_and_revert_ref_and_range(self):
         repo, output = run_program(
@@ -1073,10 +1160,10 @@ git log HEAD~3..HEAD
 
         self.assertEqual(
             output,
-            "   main ! -> caller:feature\n"
+            "   main! -> caller:feature\n"
             " * scratch\n"
             "   output -> caller:result\n"
-            "   owner ! -> caller:main\n",
+            "   owner! -> caller:main\n",
         )
         self.assertEqual(repo.HEAD, "feature")
 
@@ -1096,7 +1183,7 @@ git log HEAD~3..HEAD
 
         self.assertEqual(
             output,
-            " * main ! -> caller:main\n"
+            " * main! -> caller:main\n"
             "   target -> caller:output -> caller:result\n",
         )
 

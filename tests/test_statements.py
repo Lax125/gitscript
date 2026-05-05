@@ -301,7 +301,7 @@ class StatementTests(unittest.TestCase):
 
         output = capture_output(ListBranches(), repo)
 
-        self.assertEqual(output, "   main !\n * feature\n")
+        self.assertEqual(output, "   main!\n * feature\n")
 
     def test_delete_tags_removes_named_tags(self):
         repo = Repo()

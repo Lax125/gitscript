@@ -240,7 +240,7 @@ def _clear_ended_columns(columns: list[Commit | object | None]) -> None:
 
 def _graph_prefix(columns: list[Commit | object | None], commit_column: int, parent_column: int | None) -> str:
     columns_to_print = columns.copy()
-    while len(columns_to_print) > commit_column and columns_to_print[-1] in {None, _ENDED_COLUMN}:
+    while len(columns_to_print) > commit_column + 1 and columns_to_print[-1] in {None, _ENDED_COLUMN}:
         columns_to_print.pop()
 
     cells = []

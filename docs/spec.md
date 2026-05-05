@@ -151,16 +151,16 @@ Example at global scope:
 Example inside a function called from branch `feature`, with an unprotected `-b output`, protected `-p owner`, and `main` bound to the caller's current branch:
 
 ```text
-   main ! -> caller:feature
+   main! -> caller:feature
  * scratch
    output -> caller:result
-   owner ! -> caller:main
+   owner! -> caller:main
 ```
 
 Example inside nested function calls:
 
 ```text
-   main ! -> caller:worker -> caller:feature
+   main! -> caller:worker -> caller:feature
    target -> caller:output -> caller:result
 ```
 
@@ -490,7 +490,7 @@ git log [-n <non-negative-int>] [--graph] [--all] [<commit-selector>]...
 
 Prints characters from commits.
 
-The selectors are resolved using the commit selection rules. At least one selector is required unless `--all` is used.
+The selectors are resolved using the commit selection rules. If no selector is supplied, `git log` uses `HEAD`.
 
 Traversal is:
 
@@ -553,7 +553,7 @@ git rev-list [-n <non-negative-int>] [--reverse] [--all] [<commit-selector>]...
 
 Prints commit values (integers), one per line.
 
-The selectors are resolved using the commit selection rules. At least one selector is required unless `--all` is used.
+The selectors are resolved using the commit selection rules. If no selector is supplied, `git rev-list` uses `HEAD`.
 
 `-n` limits the output after the selection has been sorted and after `--reverse` has been applied.
 

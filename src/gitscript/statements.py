@@ -104,7 +104,7 @@ class Branch(Statement):
 class ListBranches(Statement):
     def run(self, repo: Repo):
         for entry in repo.branch_listing():
-            protected = " !" if entry.protected else ""
+            protected = "!" if entry.protected else ""
             binding = "".join(f" -> caller:{name}" for name in entry.binding_chain)
             print(f" {'*' if entry.current else ' '} {entry.name}{protected}{binding}")
 

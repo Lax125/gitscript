@@ -426,6 +426,14 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(statements[0].limit, 1)
         self.assertTrue(statements[0].graph)
 
+        statements = parse("git log --oneline")
+        self.assertIsInstance(statements[0], Log)
+        self.assertIsInstance(statements[0].ref, HeadRef)
+
+        statements = parse("git rev-list -n 2")
+        self.assertIsInstance(statements[0], RevList)
+        self.assertIsInstance(statements[0].ref, HeadRef)
+
         with self.assertRaises(ParseError):
             parse("git rev-list --oneline HEAD")
         with self.assertRaises(ParseError):

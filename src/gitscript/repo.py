@@ -521,7 +521,7 @@ class Repo:
             for name, commit in self.branches.items():
                 label = f"HEAD -> {name}" if name == self.HEAD else f"branch:{name}"
                 if name == "main":
-                    label += " !"
+                    label += "!"
                 add(commit, label)
             for name, commit in self.tags.items():
                 add(commit, f"tag:{name}")
@@ -563,7 +563,7 @@ class Repo:
             visible = self.visible_name(name)
             label = f"HEAD -> {visible}" if name == self.HEAD else f"branch:{visible}"
             if binding.is_protected():
-                label += " !"
+                label += "!"
             annotations.setdefault(binding.resolve(), []).append(label)
             return
         if binding.is_tag():

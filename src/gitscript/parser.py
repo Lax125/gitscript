@@ -956,7 +956,7 @@ def _parse_list_args(
         selectors.append(_parse_commit_selector(stream.consume_argument(command).value, stream.line_number))
 
     if not selectors:
-        raise ParseError(f"Line {stream.line_number}: {command} needs at least one commit selector")
+        selectors.append(HeadRef())
     if graph and reverse:
         raise ParseError(f"Line {stream.line_number}: {command} --graph cannot be used with --reverse")
     if graph and oneline:
