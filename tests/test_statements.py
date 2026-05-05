@@ -311,6 +311,16 @@ class StatementTests(unittest.TestCase):
 
         self.assertNotIn("old", repo.tags)
 
+    def test_tag_can_point_at_explicit_ref(self):
+        repo = Repo()
+        Commit(1, amend=False).run(repo)
+        Commit(2, amend=False).run(repo)
+
+        Tag("old", ConstantOffsetRef(HeadRef(), 1)).run(repo)
+
+        self.assertEqual(repo.tags["old"].value, 1)
+        self.assertEqual(repo.branches["main"].value, 2)
+
     def test_conflict_runs_first_block_when_condition_matches(self):
         repo = Repo()
         Checkout("a", create_at=HeadRef()).run(repo)

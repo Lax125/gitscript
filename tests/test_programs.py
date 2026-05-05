@@ -104,15 +104,18 @@ git log HEAD~19..HEAD
             git tag saved
             git tag -d saved
             git tag saved
+            git tag old HEAD~1
             git show saved
+            git show old
             """
         )
 
-        self.assertEqual(output, "1\n2\n")
+        self.assertEqual(output, "1\n2\n1\n")
         self.assertEqual(repo.branches["one"].value, 1)
         self.assertEqual(repo.branches["two"].value, 1)
         self.assertIn("temp", repo.branches)
         self.assertEqual(repo.tags["saved"].value, 2)
+        self.assertEqual(repo.tags["old"].value, 1)
 
     def test_branch_without_arguments_lists_global_branches(self):
         repo, output = run_program(
@@ -230,6 +233,26 @@ git log HEAD~19..HEAD
 
         self.assertEqual(output, "Hi\x0072\n105\n")
         self.assertEqual(repo.branches["main"].value, ord("H"))
+
+    def test_log_and_rev_list_all_include_all_visible_refs_and_override_exclusions(self):
+        repo, output = run_program(
+            """
+            git tag root
+            git commit 65
+            git branch base
+            git commit 66
+            git branch right
+            git checkout -b left base
+            git commit 67
+
+            git rev-list --reverse --all
+            git rev-list --reverse --all base..right
+            git log --reverse --all
+            """
+        )
+
+        self.assertEqual(output, "0\n65\n66\n67\n0\n65\n66\n67\n\x00ABC\n")
+        self.assertEqual(repo.branches["left"].value, 67)
 
     def test_multiple_commit_selectors_include_and_exclude_for_log_and_rev_list(self):
         repo, output = run_program(
@@ -449,6 +472,28 @@ git log HEAD~19..HEAD
             "  * 2 value=2 char='\\x02' [branch:main!, branch:right]\n",
         )
         self.assertEqual(repo.branches["left"].value, 3)
+
+    def test_git_log_graph_all_includes_visible_refs_and_commit_parameters(self):
+        repo, output = run_program(
+            """
+            git commit 1
+            git branch saved
+            git reset HEAD~1
+            git config alias.inspect -c source '!
+                git commit 2
+                git log --graph --all
+            '
+            git inspect saved
+            """
+        )
+
+        self.assertEqual(
+            output,
+            "* 2 value=2 char='\\x02' [HEAD -> main!]\n"
+            "┣━* 1 value=1 char='\\x01' [param:source]\n"
+            "* 0 value=0 char='\\0'\n",
+        )
+        self.assertEqual(repo.branches["main"].value, 2)
 
     def test_cherry_pick_and_revert_ref_and_range(self):
         repo, output = run_program(

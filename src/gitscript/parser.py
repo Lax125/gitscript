@@ -548,15 +548,21 @@ def _parse_simple_statement(tokens: list[Token], line_number: int) -> Statement 
         stream.expect_done("git show")
         return Show(ref if ref is not None else HeadRef())
     if command.kind == TokenKind.LOG:
-        selectors, limit, reverse, oneline, graph = _parse_list_args(stream, "git log", allow_oneline=True, allow_graph=True)
+        selectors, limit, reverse, oneline, graph, include_all = _parse_list_args(
+            stream,
+            "git log",
+            allow_oneline=True,
+            allow_graph=True,
+            allow_all=True,
+        )
         if len(selectors) == 1 and not isinstance(selectors[0], (CommitRange, SymmetricDifferenceRange)):
-            return Log(selectors[0], limit, reverse, oneline, graph)
-        return LogRange(selectors, limit, reverse, oneline, graph)
+            return Log(selectors[0], limit, reverse, oneline, graph, include_all)
+        return LogRange(selectors, limit, reverse, oneline, graph, include_all)
     if command.kind == TokenKind.REV_LIST:
-        selectors, limit, reverse, _, _ = _parse_list_args(stream, "git rev-list")
+        selectors, limit, reverse, _, _, include_all = _parse_list_args(stream, "git rev-list", allow_all=True)
         if len(selectors) == 1 and not isinstance(selectors[0], (CommitRange, SymmetricDifferenceRange)):
-            return RevList(selectors[0], limit, reverse)
-        return RevListRange(selectors, limit, reverse)
+            return RevList(selectors[0], limit, reverse, include_all)
+        return RevListRange(selectors, limit, reverse, include_all)
 
     return AliasCall(command.value, _token_values(stream.rest()))
 
@@ -601,8 +607,9 @@ def _parse_tag(stream: _TokenCursor) -> Statement:
         return DeleteTags(names)
 
     name = _parse_name_token(stream.expect(TokenKind.IDENTIFIER, "git tag"), "tag")
+    ref = _parse_optional_ref_argument(stream)
     stream.expect_done("git tag")
-    return Tag(name)
+    return Tag(name, ref if ref is not None else HeadRef())
 
 
 def _parse_config(stream: _TokenCursor) -> Statement:
@@ -921,11 +928,13 @@ def _parse_list_args(
         command: str,
         allow_oneline: bool = False,
         allow_graph: bool = False,
-) -> tuple[list[CommitSelector], int | None, bool, bool, bool]:
+        allow_all: bool = False,
+) -> tuple[list[CommitSelector], int | None, bool, bool, bool, bool]:
     limit = None
     reverse = False
     oneline = False
     graph = False
+    include_all = False
     selectors: list[CommitSelector] = []
 
     while not stream.done:
@@ -945,6 +954,12 @@ def _parse_list_args(
             graph = True
             continue
 
+        if stream.accept(TokenKind.OPTION, "--all"):
+            if not allow_all:
+                raise ParseError(f"Line {stream.line_number}: Unexpected {command} argument: --all")
+            include_all = True
+            continue
+
         if stream.accept(TokenKind.OPTION, "-n"):
             stream.accept(TokenKind.EQUALS)
             limit = _parse_limit_token(stream.expect(TokenKind.INT_LITERAL, f"{command} -n"), command)
@@ -961,7 +976,7 @@ def _parse_list_args(
         raise ParseError(f"Line {stream.line_number}: {command} --graph cannot be used with --reverse")
     if graph and oneline:
         raise ParseError(f"Line {stream.line_number}: {command} --graph cannot be used with --oneline")
-    return selectors, limit, reverse, oneline, graph
+    return selectors, limit, reverse, oneline, graph, include_all
 
 
 def _parse_limit_token(token: Token, command: str) -> int:
@@ -1214,6 +1229,8 @@ def _validate_tag_parameters(args: list[str], parameter_kinds: dict[str, str], l
             _require_parameter_kinds(arg, parameter_kinds, {"-t"}, line_number, "tag deletion")
         return
     _require_parameter_kinds(args[0], parameter_kinds, {"-l"}, line_number, "new tag name")
+    if len(args) > 1:
+        _require_parameter_kinds(args[1], parameter_kinds, _REF_PARAMETER_KINDS, line_number, "commit reference")
 
 
 def _validate_list_like_parameters(args: list[str], parameter_kinds: dict[str, str], line_number: int) -> None:
@@ -1227,7 +1244,7 @@ def _validate_list_like_parameters(args: list[str], parameter_kinds: dict[str, s
         elif arg.startswith("-n="):
             _require_parameter_kinds(arg[3:], parameter_kinds, {"-i"}, line_number, "list limit")
             i += 1
-        elif arg in {"--reverse", "--oneline", "--graph"}:
+        elif arg in {"--reverse", "--oneline", "--graph", "--all"}:
             i += 1
         else:
             _require_parameter_kinds(arg, parameter_kinds, _REF_PARAMETER_KINDS, line_number, "commit selector")

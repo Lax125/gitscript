@@ -553,6 +553,9 @@ class Repo:
 
         return annotations
 
+    def visible_commits(self) -> set[Commit]:
+        return set(self.visible_commit_annotations())
+
     def _add_binding_annotation(
             self,
             annotations: dict[Commit, list[str]],

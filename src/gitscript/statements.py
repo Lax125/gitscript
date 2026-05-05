@@ -118,11 +118,12 @@ class DeleteBranches(Statement):
             delete_branch(repo, branch_name)
 
 class Tag(Statement):
-    def __init__(self, tag_name: str):
+    def __init__(self, tag_name: str, ref: Ref = HeadRef()):
         self.tag_name = tag_name
+        self.ref = ref
 
     def run(self, repo: Repo):
-        tag(repo, self.tag_name)
+        tag(repo, self.tag_name, self.ref)
 
 class DeleteTags(Statement):
     def __init__(self, tag_names: list[str]):
@@ -297,15 +298,17 @@ class Log(Statement):
             reverse: bool = False,
             oneline: bool = False,
             graph: bool = False,
+            include_all: bool = False,
     ):
         self.ref = ref
         self.limit = limit
         self.reverse = reverse
         self.oneline = oneline
         self.graph = graph
+        self.include_all = include_all
 
     def run(self, repo: Repo):
-        log(repo, self.ref, self.limit, self.reverse, self.oneline, self.graph)
+        log(repo, self.ref, self.limit, self.reverse, self.oneline, self.graph, self.include_all)
 
 class LogRange(Statement):
     def __init__(
@@ -315,6 +318,7 @@ class LogRange(Statement):
             reverse: bool = False,
             oneline: bool = False,
             graph: bool = False,
+            include_all: bool = False,
     ):
         self.selectors = commit_range if isinstance(commit_range, list) else [commit_range]
         self.commit_range = self.selectors[0] if len(self.selectors) == 1 and isinstance(self.selectors[0], CommitRange) else None
@@ -322,19 +326,27 @@ class LogRange(Statement):
         self.reverse = reverse
         self.oneline = oneline
         self.graph = graph
+        self.include_all = include_all
 
     def run(self, repo: Repo):
-        log_selectors(repo, self.selectors, self.limit, self.reverse, self.oneline, self.graph)
+        log_selectors(repo, self.selectors, self.limit, self.reverse, self.oneline, self.graph, self.include_all)
 
 
 class RevList(Statement):
-    def __init__(self, ref: Ref = HeadRef(), limit: Optional[int] = None, reverse: bool = False):
+    def __init__(
+            self,
+            ref: Ref = HeadRef(),
+            limit: Optional[int] = None,
+            reverse: bool = False,
+            include_all: bool = False,
+    ):
         self.ref = ref
         self.limit = limit
         self.reverse = reverse
+        self.include_all = include_all
 
     def run(self, repo: Repo):
-        rev_list(repo, self.ref, self.limit, self.reverse)
+        rev_list(repo, self.ref, self.limit, self.reverse, self.include_all)
 
 
 class RevListRange(Statement):
@@ -343,14 +355,16 @@ class RevListRange(Statement):
             commit_range: CommitRange | list[CommitSelector],
             limit: Optional[int] = None,
             reverse: bool = False,
+            include_all: bool = False,
     ):
         self.selectors = commit_range if isinstance(commit_range, list) else [commit_range]
         self.commit_range = self.selectors[0] if len(self.selectors) == 1 and isinstance(self.selectors[0], CommitRange) else None
         self.limit = limit
         self.reverse = reverse
+        self.include_all = include_all
 
     def run(self, repo: Repo):
-        rev_list_selectors(repo, self.selectors, self.limit, self.reverse)
+        rev_list_selectors(repo, self.selectors, self.limit, self.reverse, self.include_all)
 
 
 class MergeContinue(Statement):

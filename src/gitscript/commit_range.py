@@ -44,6 +44,7 @@ def resolve_commit_selectors(
         repo: Repo,
         selectors: list[CommitSelector],
         ref_includes_reachable: bool,
+        include_all: bool = False,
 ) -> list[Commit]:
     included: set[Commit] = set()
     excluded: set[Commit] = set()
@@ -59,6 +60,12 @@ def resolve_commit_selectors(
 
         included.update(selector.included_commits(repo))
         excluded.update(selector.excluded_commits(repo))
+
+    if include_all:
+        all_included: set[Commit] = set()
+        for commit in repo.visible_commits():
+            all_included.update(reachable_commits(commit))
+        return sort_backwards_chronologically((included - excluded) | all_included)
 
     return sort_backwards_chronologically(included - excluded)
 

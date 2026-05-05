@@ -340,6 +340,7 @@ class ParserTests(unittest.TestCase):
             git checkout -b feature2
             git branch branch3
             git tag tag4
+            git tag old HEAD~1
             git branch -d feature/path-1_ok feature2 branch3
             git tag -d tag4
             """
@@ -349,8 +350,11 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(statements[1].branch_name, "feature2")
         self.assertEqual(statements[2].branch_name, "branch3")
         self.assertEqual(statements[3].tag_name, "tag4")
-        self.assertEqual(statements[4].branch_names, ["feature/path-1_ok", "feature2", "branch3"])
-        self.assertEqual(statements[5].tag_names, ["tag4"])
+        self.assertIsInstance(statements[3].ref, HeadRef)
+        self.assertEqual(statements[4].tag_name, "old")
+        self.assertIsInstance(statements[4].ref, ConstantOffsetRef)
+        self.assertEqual(statements[5].branch_names, ["feature/path-1_ok", "feature2", "branch3"])
+        self.assertEqual(statements[6].tag_names, ["tag4"])
 
     def test_branch_tag_and_ref_names_reject_invalid_names(self):
         invalid_sources = [
@@ -434,6 +438,15 @@ class ParserTests(unittest.TestCase):
         self.assertIsInstance(statements[0], RevList)
         self.assertIsInstance(statements[0].ref, HeadRef)
 
+        statements = parse("git log --graph --all")
+        self.assertIsInstance(statements[0], Log)
+        self.assertTrue(statements[0].graph)
+        self.assertTrue(statements[0].include_all)
+
+        statements = parse("git rev-list --all HEAD~1..HEAD")
+        self.assertIsInstance(statements[0], RevListRange)
+        self.assertTrue(statements[0].include_all)
+
         with self.assertRaises(ParseError):
             parse("git rev-list --oneline HEAD")
         with self.assertRaises(ParseError):
@@ -442,6 +455,10 @@ class ParserTests(unittest.TestCase):
             parse("git log --graph --reverse HEAD")
         with self.assertRaises(ParseError):
             parse("git log --graph --oneline HEAD")
+        with self.assertRaises(ParseError):
+            parse("git cherry-pick --all")
+        with self.assertRaises(ParseError):
+            parse("git revert --all")
 
     def test_refs_associate_right_to_left(self):
         statements = parse("git show HEAD~foo~1")

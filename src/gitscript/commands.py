@@ -69,8 +69,8 @@ def delete_branch(repo: Repo, name: str):
 def checkout(repo: Repo, name: str):
     repo.checkout(name)
 
-def tag(repo: Repo, name: str):
-    repo.create_tag(name, repo.current_commit())
+def tag(repo: Repo, name: str, ref: Ref = HeadRef()):
+    repo.create_tag(name, resolve(ref, repo))
 
 def delete_tag(repo: Repo, name: str):
     repo.delete_tag(name)
@@ -113,8 +113,9 @@ def log(
         reverse: bool = False,
         oneline: bool = False,
         graph: bool = False,
+        include_all: bool = False,
 ):
-    commits = _select_commits(resolve_commit_selectors(repo, [ref], True), limit, reverse)
+    commits = _select_commits(resolve_commit_selectors(repo, [ref], True, include_all), limit, reverse)
     if graph:
         _print_graph(repo, commits)
         return
@@ -127,8 +128,9 @@ def log_range(
         reverse: bool = False,
         oneline: bool = False,
         graph: bool = False,
+        include_all: bool = False,
 ):
-    log_selectors(repo, [commit_range], limit, reverse, oneline, graph)
+    log_selectors(repo, [commit_range], limit, reverse, oneline, graph, include_all)
 
 def log_selectors(
         repo: Repo,
@@ -137,27 +139,35 @@ def log_selectors(
         reverse: bool = False,
         oneline: bool = False,
         graph: bool = False,
+        include_all: bool = False,
 ):
-    commits = resolve_commit_selectors(repo, selectors, ref_includes_reachable=True)
+    commits = resolve_commit_selectors(repo, selectors, ref_includes_reachable=True, include_all=include_all)
     commits = _select_commits(commits, limit, reverse)
     if graph:
         _print_graph(repo, commits)
         return
     _print_string(_commits_to_string(commits), oneline)
 
-def rev_list(repo: Repo, ref: Ref, limit: Optional[int] = None, reverse: bool = False):
-    _print_values(_select_commits(resolve_commit_selectors(repo, [ref], True), limit, reverse))
+def rev_list(repo: Repo, ref: Ref, limit: Optional[int] = None, reverse: bool = False, include_all: bool = False):
+    _print_values(_select_commits(resolve_commit_selectors(repo, [ref], True, include_all), limit, reverse))
 
-def rev_list_range(repo: Repo, commit_range: CommitRange, limit: Optional[int] = None, reverse: bool = False):
-    rev_list_selectors(repo, [commit_range], limit, reverse)
+def rev_list_range(
+        repo: Repo,
+        commit_range: CommitRange,
+        limit: Optional[int] = None,
+        reverse: bool = False,
+        include_all: bool = False,
+):
+    rev_list_selectors(repo, [commit_range], limit, reverse, include_all)
 
 def rev_list_selectors(
         repo: Repo,
         selectors: list[CommitSelector],
         limit: Optional[int] = None,
         reverse: bool = False,
+        include_all: bool = False,
 ):
-    commits = resolve_commit_selectors(repo, selectors, ref_includes_reachable=True)
+    commits = resolve_commit_selectors(repo, selectors, ref_includes_reachable=True, include_all=include_all)
     _print_values(_select_commits(commits, limit, reverse))
 
 

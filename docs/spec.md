@@ -181,10 +181,12 @@ Deletes the specified branches.
 ### `git tag`
 
 ```gitscript
-git tag <name>
+git tag <name> [<commit-ref>]
 ```
 
 Creates a named reference to the current commit.
+
+If a commit is specified, the tag points there. Otherwise, it points to the current commit.
 
 ---
 
