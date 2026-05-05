@@ -359,7 +359,7 @@ Example: cherry-picking values `[1, 2, 3]` onto a current value of `5` with `-s=
 ### `git merge`
 
 ```gitscript
-git merge [-s ltcondition>] [<label>]
+git merge [-s <condition>] [<label>]
 git merge --continue [<label>]
 git merge --abort [<label>]
 ```
@@ -387,7 +387,7 @@ Conditions are separate from value-combining cherry-pick strategies:
 #### Execution
 
 ```gitscript
-git merge [-s ltcondition>] [<label>]
+git merge [-s <condition>] [<label>]
 <<<<<<< A
     ...
 =======
@@ -503,7 +503,7 @@ Exits the current execution block early.
 GitScript uses merge conflict syntax for control flow:
 
 ```gitscript
-git merge [-s ltcondition>] [<label>]
+git merge [-s <condition>] [<label>]
 <<<<<<< A
     ...
 =======
@@ -540,7 +540,7 @@ Defines a command shortform. After this config statement runs, a command beginni
 
 Arguments after the shortform are appended to the substituted command.
 
-Expanding a shortform must produce exactly one statement. It cannot produce multiple statements with `&&`.
+Expanding a shortform must produce exactly one composed statement. It can use anonymous blocks, `&&`, and `||` if the whole expansion is still one statement expression. It cannot expand to multiple newline-separated statements.
 
 For example, this definition is accepted:
 
@@ -554,19 +554,25 @@ This call expands to one statement:
 git ci 20
 ```
 
-This definition is also accepted, because shortforms are not validated when defined:
+This definition is also accepted:
 
 ```gitscript
 git config alias.abc 'commit 20 && git show'
 ```
 
-But running it is an error:
+Running it expands to one composed statement:
 
 ```gitscript
 git abc
 ```
 
-The expanded text contains two statements, so it cannot be used as a shortform expansion.
+The expanded text is equivalent to:
+
+```gitscript
+git commit 20 && git show
+```
+
+Shortform definitions are still not validated when defined. A malformed expansion is reported when the shortform is called.
 
 Example:
 
@@ -583,14 +589,14 @@ git cherry-pick main -s=max
 
 Alias substitution can happen multiple times. If the replacement fragment begins with another shortform or function name, that name is expanded too. The final expanded result must still be one statement.
 
-No validation is performed when the shortform is defined. The fragment does not need to form a valid statement at definition time. It can still expand to a statement that defines another shortform or function, or to a statement that commits a multiline string.
+No validation is performed when the shortform is defined. The fragment does not need to form a valid statement at definition time. It can still expand to a statement that defines another shortform or function, to a statement that commits a multiline string, or to a composed statement using `&&` and `||`.
 
 Alias expansion happens while parsing the command being executed, using aliases that have already been executed. Aliases defined later in the program are not visible earlier in the program.
 
 ### Functions
 
 ```gitscript
-git config alias.function_name [-i <name>]... [-s ltname>]... [-l <name>]... [-b <name>]... [-p <name>]... [-t <name>]... [-r <name>]... [-c <name>]... [-o <name>]... '![statement]...'
+git config alias.function_name [-i <name>]... [-s <name>]... [-l <name>]... [-b <name>]... [-p <name>]... [-t <name>]... [-r <name>]... [-c <name>]... [-o <name>]... '![statement]...'
 ```
 
 Defines a function. A function body is an ordered list of zero or more statements. When `git function_name` is executed, GitScript executes those statements in order.
@@ -621,7 +627,8 @@ Function bodies are syntax-checked when the function is defined.
 Each statement in a function body must:
 
 * start with `git`, or
-* be `exit`
+* be `exit`, or
+* be an anonymous block beginning with `'!`
 
 Built-in `git` statements in a function body must conform to the same syntax as top-level built-in statements. This includes command options, ref syntax, merge conditions, cherry-pick strategies, and multiline string syntax.
 
@@ -680,7 +687,7 @@ A parameter reference can appear anywhere a value of that parameter's type is ex
 Parameter types:
 
 * `-i <name>`: integer literal. `true` and `false` are accepted as integer literals with values `1` and `0`
-* `-s ltname>`: string literal
+* `-s <name>`: string literal
 * `-l <name>`: label. The argument must be a valid name that does not currently refer to an existing branch or tag in the caller's frame. This is useful for functions that create branches or tags in the caller's frame.
 * `-b <name>`: existing unprotected branch. The argument must name a branch that exists when the function is called. `main` and the caller's current branch cannot be passed as `-b`.
 * `-p <name>`: existing protected branch. The argument must name a branch that exists when the function is called. `main` and the caller's current branch can be passed as `-p`, and the branch cannot be deleted through the parameter inside the function.
@@ -813,9 +820,47 @@ This keeps function calls visually close to Git command options while avoiding a
 
 ---
 
-## Statement Separators
+## Statement Composition
 
-Statements are normally separated by newlines. `&&` can be used anywhere a newline could separate statements:
+GitScript statements can be composed with anonymous blocks, sequencing, error recovery, and newlines.
+
+### Anonymous Blocks
+
+An anonymous block can be used anywhere a statement can be used:
+
+```gitscript
+'!
+  git commit 1
+  git show
+'
+```
+
+The block begins with `'!` and ends at the matching closing single quote. Its body uses the same statement syntax as a function body: the first statement can appear on the same line as `'!`, and the last statement can appear on the same line as the closing quote.
+
+Anonymous blocks can be nested. A `'!` inside an anonymous block starts a nested block and must be matched before the outer block can close. Single quotes that appear inside string literals do not close the surrounding block.
+
+Anonymous blocks execute immediately in the current execution frame. They do not create a function call frame, do not introduce local branch/tag scope, and do not bind parameters. They are useful for grouping multiple statements into one statement for `&&` and `||`.
+
+Example:
+
+```gitscript
+'!git commit 1 && git show'
+```
+
+This is one statement: an anonymous block containing two statements.
+
+Example with nesting:
+
+```gitscript
+'!
+  git commit -m "don't close the block"
+  '!git commit 2'
+'
+```
+
+### Sequencing With `&&`
+
+`&&` sequences statements on a single physical line:
 
 ```gitscript
 git commit 1 && git show
@@ -828,17 +873,108 @@ git commit 1
 git show
 ```
 
-A merge-conflict control structure is one statement for this purpose. The `git merge [-s ltcondition>] [<label>]` line and its corresponding conflict markers and blocks stay together as a single statement, even though the statement spans multiple lines.
+The right side of `&&` runs only if the left side completes successfully. If the left side fails with an error, the right side is skipped and that error continues outward.
 
-Lexically, newlines, `&&`, and merge-conflict markers are statement separators.
+`&&` groups left to right:
 
-Conflict markers are forced to stay on their own physical lines. `&&` is not allowed before or after:
+```gitscript
+A && B && C
+```
+
+is:
+
+```gitscript
+(A && B) && C
+```
+
+### Error Recovery With `||`
+
+`||` tries the left statement and runs the right statement only if the left statement fails with an error:
+
+```gitscript
+git cherry-pick denominator -s=div || git commit 0
+```
+
+If the cherry-pick fails, for example because of division by zero, the fallback `git commit 0` runs.
+
+`||` catches ordinary GitScript errors, including but not limited to:
+
+* integer parsing errors from `git commit`
+* division or modulo by zero
+* missing ancestors in `<commit-ref>~N`
+* missing branches or tags
+* using a tag where a branch is required, or a branch where a tag is required
+* invalid function arguments checked at call time
+* errors raised while defining a function body
+
+`||` does not catch syntax errors that prevent the program or enclosing block from being parsed.
+
+`exit`, `git merge --continue`, and `git merge --abort` are control-flow signals, not errors. They are not caught by `||`.
+
+If the left side of `||` fails after producing side effects, those side effects remain. GitScript does not roll back history, branch movement, tags, config changes, printed output, or partial work from a failed statement.
+
+`||` groups left to right:
+
+```gitscript
+A || B || C
+```
+
+is:
+
+```gitscript
+(A || B) || C
+```
+
+### Precedence
+
+Statement composition has this precedence, from strongest to weakest:
+
+1. Anonymous block: `'!...'`
+2. Sequencing: `&&`
+3. Error recovery: `||`
+4. Newline separation
+
+This means:
+
+```gitscript
+A && B || C && D
+```
+
+is parsed as:
+
+```gitscript
+(A && B) || (C && D)
+```
+
+and:
+
+```gitscript
+A || B
+C
+```
+
+is parsed as:
+
+```gitscript
+(A || B)
+C
+```
+
+A newline separates statements after `&&` and `||` have grouped everything on the physical line.
+
+### Merge-Conflict Statements
+
+A merge-conflict control structure is one statement for composition purposes. The `git merge [-s <condition>] [<label>]` line and its corresponding conflict markers and blocks stay together as a single statement, even though the statement spans multiple lines.
+
+Lexically, newlines, `&&`, `||`, and merge-conflict markers are statement separators.
+
+Conflict markers are forced to stay on their own physical lines. `&&` and `||` are not allowed before or after:
 
 * `<<<<<<< <commit-ref>`
 * `=======`
 * `>>>>>>> <commit-ref>`
 
-This means the inside of a conflict block can use `&&` between ordinary statements, but the marker lines themselves cannot share a line with anything else.
+This means the inside of a conflict block can use `&&` and `||` between ordinary statements, but the marker lines themselves cannot share a line with anything else.
 
 Example:
 

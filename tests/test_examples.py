@@ -25,13 +25,16 @@ class ExampleTests(unittest.TestCase):
 
     def test_fibonacci(self):
         self.assertEqual(run_example("fibonacci.gs", ["0"]), "Sequence length: ")
+        self.assertEqual(run_example("fibonacci.gs", ["oops", "3"]), "Sequence length: Sequence length: 0\n1\n1\n")
         self.assertEqual(run_example("fibonacci.gs", ["8"]), "Sequence length: 0\n1\n1\n2\n3\n5\n8\n13\n")
 
     def test_collatz(self):
         self.assertEqual(run_example("collatz.gs", ["6"]), "Initial number: 6\n3\n10\n5\n16\n8\n4\n2\n1\n")
+        self.assertEqual(run_example("collatz.gs", ["oops", "1"]), "Initial number: Initial number: 1\n")
 
     def test_primes(self):
         self.assertEqual(run_example("primes.gs", ["1"]), "Max number: ")
+        self.assertEqual(run_example("primes.gs", ["oops", "5"]), "Max number: Max number: 2\n3\n5\n")
         self.assertEqual(run_example("primes.gs", ["20"]), "Max number: 2\n3\n5\n7\n11\n13\n17\n19\n")
 
     def test_reverse_words(self):

@@ -3,7 +3,7 @@ from enum import Enum, auto
 
 
 _NAME_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_/")
-_WORD_BREAKS = frozenset("()~=<>!+*%")
+_WORD_BREAKS = frozenset("()~=<>!+*%|")
 
 
 class LexError(ValueError):
@@ -36,6 +36,7 @@ class TokenKind(Enum):
     CONFIG_KEY = auto()
 
     AND = auto()
+    OR = auto()
     NEWLINE = auto()
     LPAREN = auto()
     RPAREN = auto()
@@ -117,6 +118,7 @@ _WORD_STRATEGIES = {
 
 _SYMBOL_TOKENS = {
     "&&": TokenKind.AND,
+    "||": TokenKind.OR,
     "<<<<<<<": TokenKind.CONFLICT_START,
     "=======": TokenKind.CONFLICT_MIDDLE,
     ">>>>>>>": TokenKind.CONFLICT_END,
@@ -129,6 +131,7 @@ _SYMBOL_TOKENS = {
 
 _SEPARATOR_KINDS = frozenset({
     TokenKind.AND,
+    TokenKind.OR,
     TokenKind.NEWLINE,
     TokenKind.CONFLICT_START,
     TokenKind.CONFLICT_MIDDLE,
@@ -199,6 +202,44 @@ def is_separator_token(token: Token) -> bool:
     return token.kind in _SEPARATOR_KINDS
 
 
+def has_unclosed_single_quote(text: str) -> bool:
+    i = 0
+    while i < len(text):
+        if text.startswith('"""', i):
+            closing = text.find('"""', i + 3)
+            if closing == -1:
+                return False
+            i = closing + 3
+            continue
+
+        char = text[i]
+        if char == "#":
+            while i < len(text) and text[i] not in "\r\n":
+                i += 1
+            continue
+        if char == '"':
+            end = _skip_double_string(text, i + 1)
+            if end is None:
+                return False
+            i = end
+            continue
+        if text.startswith("'!", i):
+            end = _find_bang_block_end(text, i)
+            if end is None:
+                return True
+            i = end + 1
+            continue
+        if char == "'":
+            end = _skip_plain_single_string(text, i + 1)
+            if end is None:
+                return True
+            i = end
+            continue
+        i += 1
+
+    return False
+
+
 def strip_comment(text: str) -> str:
     in_single_quote = False
     in_double_quote = False
@@ -206,6 +247,13 @@ def strip_comment(text: str) -> str:
     i = 0
 
     while i < len(text):
+        if text.startswith("'!", i) and not in_single_quote and not in_double_quote:
+            end = _find_bang_block_end(text, i)
+            if end is None:
+                return text
+            i = end + 1
+            continue
+
         if text.startswith('"""', i) and not in_single_quote and not in_double_quote:
             i = _skip_triple_string(text, i + 3)
             continue
@@ -242,6 +290,9 @@ def _read_next_token(text: str, start: int, line_number: int, column: int, group
         value, end = _read_double_string(text, start + 1, line_number)
         return Token(TokenKind.STRING_LITERAL, value, line_number, column, True, '"', group), end
     if text[start] == "'":
+        if text.startswith("'!", start):
+            value, end = _read_bang_block(text, start, line_number)
+            return Token(TokenKind.STRING_LITERAL, value, line_number, column, True, "'", group), end
         value, end = _read_single_string(text, start + 1, line_number)
         return Token(TokenKind.STRING_LITERAL, value, line_number, column, True, "'", group), end
 
@@ -260,7 +311,7 @@ def _read_word(text: str, start: int) -> tuple[str, int]:
     while i < len(text):
         if text[i].isspace() or text[i] == "#":
             break
-        if text.startswith("&&", i) or text.startswith("..", i):
+        if text.startswith("&&", i) or text.startswith("||", i) or text.startswith("..", i):
             break
         if any(text.startswith(marker, i) for marker in ("<<<<<<<", "=======", ">>>>>>>")):
             break
@@ -302,6 +353,13 @@ def _read_single_string(text: str, i: int, line_number: int) -> tuple[str, int]:
     return text[i:closing], closing + 1
 
 
+def _read_bang_block(text: str, start: int, line_number: int) -> tuple[str, int]:
+    closing = _find_bang_block_end(text, start)
+    if closing is None:
+        raise LexError(f"Line {line_number}: single-quoted block is missing closing quote")
+    return text[start + 1:closing], closing + 1
+
+
 def _read_triple_string(text: str, i: int, line_number: int) -> tuple[str, int]:
     closing = text.find('"""', i)
     if closing == -1:
@@ -314,6 +372,93 @@ def _skip_triple_string(text: str, i: int) -> int:
     if closing == -1:
         return len(text)
     return closing + 3
+
+
+def _skip_double_string(text: str, i: int) -> int | None:
+    escaped = False
+    while i < len(text):
+        char = text[i]
+        if escaped:
+            escaped = False
+            i += 1
+            continue
+        if char == "\\":
+            escaped = True
+            i += 1
+            continue
+        if char == '"':
+            return i + 1
+        i += 1
+    return None
+
+
+def _skip_plain_single_string(text: str, i: int) -> int | None:
+    closing = text.find("'", i)
+    if closing == -1:
+        return None
+    return closing + 1
+
+
+def _find_bang_block_end(text: str, start: int) -> int | None:
+    depth = 1
+    i = start + 2
+
+    while i < len(text):
+        if text.startswith('"""', i):
+            closing = text.find('"""', i + 3)
+            if closing == -1:
+                return None
+            i = closing + 3
+            continue
+
+        if text.startswith("'!", i):
+            depth += 1
+            i += 2
+            continue
+
+        char = text[i]
+        if char == "#":
+            while i < len(text) and text[i] not in "\r\n":
+                i += 1
+            continue
+        if char == '"':
+            end = _skip_double_string(text, i + 1)
+            if end is None:
+                return None
+            i = end
+            continue
+        if char == "'":
+            if _looks_like_single_string_start_in_block(text, i):
+                end = _skip_plain_single_string(text, i + 1)
+                if end is None:
+                    return None
+                i = end
+                continue
+
+            depth -= 1
+            if depth == 0:
+                return i
+            i += 1
+            continue
+
+        i += 1
+
+    return None
+
+
+def _looks_like_single_string_start_in_block(text: str, i: int) -> bool:
+    if i + 1 >= len(text) or text[i + 1] in "\r\n":
+        return False
+    next_non_space = i + 1
+    while next_non_space < len(text) and text[next_non_space] in " \t":
+        next_non_space += 1
+    if next_non_space >= len(text) or text[next_non_space] == "#":
+        return False
+    if text.startswith("&&", next_non_space) or text.startswith("||", next_non_space):
+        return False
+    if i > 0 and (text[i - 1].isspace() or text[i - 1] == "="):
+        return True
+    return False
 
 
 def _classify_word(value: str) -> TokenKind:

@@ -31,6 +31,10 @@ class ExitSignal(Exception):
     pass
 
 
+def _is_control_flow_signal(exc: Exception) -> bool:
+    return isinstance(exc, (MergeContinueSignal, MergeAbortSignal, ExitSignal))
+
+
 @dataclass
 class AliasDefinition:
     fragment: str
@@ -53,6 +57,39 @@ class FunctionDefinition:
 class BoundArguments:
     values: dict[str, str]
     bindings: dict[str, RefBinding]
+
+
+class StatementBlock(Statement):
+    def __init__(self, statements: list[Statement]):
+        self.statements = statements
+
+    def run(self, repo: Repo):
+        for statement in self.statements:
+            statement.run(repo)
+
+
+class Sequence(Statement):
+    def __init__(self, left: Statement, right: Statement):
+        self.left = left
+        self.right = right
+
+    def run(self, repo: Repo):
+        self.left.run(repo)
+        self.right.run(repo)
+
+
+class Rescue(Statement):
+    def __init__(self, left: Statement, right: Statement):
+        self.left = left
+        self.right = right
+
+    def run(self, repo: Repo):
+        try:
+            self.left.run(repo)
+        except Exception as exc:
+            if _is_control_flow_signal(exc):
+                raise
+            self.right.run(repo)
 
 class Branch(Statement):
     def __init__(self, branch_name: str, ref: Ref = HeadRef()):

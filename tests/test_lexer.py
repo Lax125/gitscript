@@ -1,6 +1,6 @@
 import unittest
 
-from gitscript.lexer import TokenKind, is_separator_token, lex_statement
+from gitscript.lexer import TokenKind, has_unclosed_single_quote, is_separator_token, lex_statement
 
 
 class LexerTests(unittest.TestCase):
@@ -22,7 +22,7 @@ class LexerTests(unittest.TestCase):
         self.assertEqual(tokens[2].value, "-42")
 
     def test_lexes_separators_and_strategies(self):
-        tokens = lex_statement("git cherry-pick HEAD~2..HEAD -s=max && git merge -s is", 1)
+        tokens = lex_statement("git cherry-pick HEAD~2..HEAD -s=max && git merge -s is || git commit 0", 1)
 
         self.assertEqual(
             [token.kind for token in tokens],
@@ -42,10 +42,15 @@ class LexerTests(unittest.TestCase):
                 TokenKind.MERGE,
                 TokenKind.OPTION,
                 TokenKind.CONDITION_IS,
+                TokenKind.OR,
+                TokenKind.GIT,
+                TokenKind.COMMIT,
+                TokenKind.INT_LITERAL,
             ],
         )
         self.assertEqual(tokens[7].group, tokens[8].group)
         self.assertEqual(tokens[8].group, tokens[9].group)
+        self.assertTrue(is_separator_token(tokens[15]))
 
         equals_strategy = lex_statement("git cherry-pick main -s=eq", 1)
         self.assertEqual(
@@ -66,6 +71,15 @@ class LexerTests(unittest.TestCase):
 
         self.assertEqual(tokens[-1].kind, TokenKind.STRING_LITERAL)
         self.assertEqual(tokens[-1].value, "commit -m")
+
+    def test_lexes_nested_blocks_without_closing_on_string_apostrophes(self):
+        tokens = lex_statement("'!git commit -m \"don't\" && '!git commit 2''", 1)
+
+        self.assertEqual(len(tokens), 1)
+        self.assertEqual(tokens[0].kind, TokenKind.STRING_LITERAL)
+        self.assertEqual(tokens[0].value, "!git commit -m \"don't\" && '!git commit 2'")
+        self.assertFalse(has_unclosed_single_quote("'!git commit -m \"don't\"'"))
+        self.assertTrue(has_unclosed_single_quote("'!git commit -m \"don't\""))
 
     def test_lexes_triple_quoted_multiline_strings(self):
         tokens = lex_statement('git commit -m """one\n"two"\nthree"""', 1)

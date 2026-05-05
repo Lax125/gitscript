@@ -3,9 +3,16 @@ git tag root
 # Read the requested sequence length.
 git checkout -b prompt root
 git commit -m "Sequence length: "
-git log --oneline root..prompt
 git checkout -b remaining root
-git commit  # sequence length
+
+git merge -s is read_number
+<<<<<<< remaining
+    git log --oneline root..prompt
+    git commit || git merge --continue read_number
+    git merge --abort read_number
+=======
+    git merge --abort read_number
+>>>>>>> root
 
 # Constants and working branches for the pair (a, b).
 git checkout -b one root

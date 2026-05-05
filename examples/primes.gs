@@ -3,9 +3,16 @@ git tag root
 # Read the inclusive upper bound.
 git checkout -b prompt root
 git commit -m "Max number: "
-git log --oneline root..prompt
 git checkout -b max_value root
-git commit  # maximum number to test
+
+git merge -s is read_number
+<<<<<<< max_value
+    git log --oneline root..prompt
+    git commit || git merge --continue read_number
+    git merge --abort read_number
+=======
+    git merge --abort read_number
+>>>>>>> root
 
 # Start testing candidates at 2.
 git checkout -b one root

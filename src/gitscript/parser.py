@@ -4,7 +4,15 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from gitscript.commit_range import CommitRange
-from gitscript.lexer import LexError, Token, TokenKind, is_identifier_text, lex_statement, strip_comment
+from gitscript.lexer import (
+    LexError,
+    Token,
+    TokenKind,
+    has_unclosed_single_quote as lexer_has_unclosed_single_quote,
+    is_identifier_text,
+    lex_statement,
+    strip_comment,
+)
 from gitscript.refs import BranchRef, ConstantOffsetRef, DynamicOffsetRef, HeadRef, Ref
 from gitscript.operators import Condition, Operator
 from gitscript.statements import (
@@ -33,8 +41,11 @@ from gitscript.statements import (
     Reset,
     RevList,
     RevListRange,
+    Rescue,
     Show,
     Statement,
+    StatementBlock,
+    Sequence,
     Tag,
     Parameter,
 )
@@ -71,12 +82,12 @@ def _prepare_lines(raw_lines: list[str], allow_incomplete: bool) -> list[_Line]:
         line_number = i + 1
         text = raw_lines[i].rstrip("\n")
 
-        if _is_multiline_alias_start(text):
+        if _has_unclosed_single_quote(_strip_comment(text)):
             collected = [text]
-            while _has_unclosed_single_quote("\n".join(collected)):
+            while _has_unclosed_single_quote(_strip_comment("\n".join(collected))):
                 i += 1
                 if i >= len(raw_lines):
-                    message = f"Line {line_number}: git config alias is missing closing quote"
+                    message = f"Line {line_number}: single-quoted block is missing closing quote"
                     if allow_incomplete:
                         raise IncompleteInput(message)
                     raise ParseError(message)
@@ -94,10 +105,10 @@ def _prepare_lines(raw_lines: list[str], allow_incomplete: bool) -> list[_Line]:
                 collected.append(raw_lines[i].rstrip("\n"))
             lines.append(_Line(line_number, "\n".join(collected)))
         else:
-            parts = _split_statement_separators(text, line_number)
-            if len(parts) > 1 and any(_line_starts_with(part, line_number, _CONFLICT_MARKER_KINDS) for part in parts):
-                raise ParseError(f"Line {line_number}: Conflict markers cannot share a line with &&")
-            lines.extend(_Line(line_number, part) for part in parts)
+            _validate_conflict_marker_line(text, line_number)
+            stripped = text.strip()
+            if stripped:
+                lines.append(_Line(line_number, stripped))
 
         i += 1
 
@@ -166,20 +177,30 @@ class _Parser:
 
             statement = _parse_statement(line)
             self.index += 1
-            if isinstance(statement, _MergeStart):
-                self._skip_ignored_lines()
-                conflict_start = self._current()
-                if conflict_start is None:
-                    if self.allow_incomplete:
-                        raise IncompleteInput(f"Line {line.number}: git merge needs a conflict block")
-                    raise self._error(line, "git merge needs a conflict block")
-                if not _line_starts_with(conflict_start.text, conflict_start.number, {TokenKind.CONFLICT_START}):
-                    raise self._error(conflict_start, "git merge must be followed by a conflict block")
-                statements.append(self._parse_conflict(conflict_start, statement.condition, statement.label))
-            else:
-                statements.append(statement)
+            statements.append(self._resolve_merge_starts(statement, line))
 
         return statements
+
+    def _resolve_merge_starts(self, statement: Statement | _MergeStart, line: _Line) -> Statement:
+        if isinstance(statement, _MergeStart):
+            self._skip_ignored_lines()
+            conflict_start = self._current()
+            if conflict_start is None:
+                if self.allow_incomplete:
+                    raise IncompleteInput(f"Line {line.number}: git merge needs a conflict block")
+                raise self._error(line, "git merge needs a conflict block")
+            if not _line_starts_with(conflict_start.text, conflict_start.number, {TokenKind.CONFLICT_START}):
+                raise self._error(conflict_start, "git merge must be followed by a conflict block")
+            return self._parse_conflict(conflict_start, statement.condition, statement.label)
+        if isinstance(statement, Sequence):
+            statement.left = self._resolve_merge_starts(statement.left, line)
+            statement.right = self._resolve_merge_starts(statement.right, line)
+            return statement
+        if isinstance(statement, Rescue):
+            statement.left = self._resolve_merge_starts(statement.left, line)
+            statement.right = self._resolve_merge_starts(statement.right, line)
+            return statement
+        return statement
 
     def _parse_conflict(self, start: _Line, condition: Condition, label: str | None) -> Conflict:
         ref_a = _parse_conflict_marker_ref(start, TokenKind.CONFLICT_START, "Conflict start marker")
@@ -427,20 +448,72 @@ def _line_starts_with(text: str, line_number: int, kinds: set[TokenKind] | froze
     return first_kind in kinds if first_kind is not None else False
 
 
-def _parse_statement(line: _Line) -> Statement | _MergeStart:
-    triple_commit = _parse_triple_commit_string(line.text, line.number)
-    if triple_commit is not None:
-        return triple_commit
+def _validate_conflict_marker_line(text: str, line_number: int) -> None:
+    tokens = _lex_statement(_strip_comment(text).strip(), line_number)
+    if not any(token.kind in _CONFLICT_MARKER_KINDS for token in tokens):
+        return
+    if any(token.kind in {TokenKind.AND, TokenKind.OR} for token in tokens):
+        raise ParseError(f"Line {line_number}: Conflict markers cannot share a line with && or ||")
 
+
+def _parse_statement(line: _Line) -> Statement | _MergeStart:
     raw = _strip_comment(line.text).strip()
     tokens = _lex_statement(raw, line.number)
+    return _parse_statement_expression(tokens, line.number)
 
+
+def _parse_statement_expression(tokens: list[Token], line_number: int) -> Statement | _MergeStart:
+    return _parse_rescue_expression(tokens, line_number)
+
+
+def _parse_rescue_expression(tokens: list[Token], line_number: int) -> Statement | _MergeStart:
+    parts = _split_tokens(tokens, TokenKind.OR)
+    statement = _parse_sequence_expression(parts[0], line_number)
+    for part in parts[1:]:
+        right = _parse_sequence_expression(part, line_number)
+        statement = Rescue(statement, right)
+    return statement
+
+
+def _parse_sequence_expression(tokens: list[Token], line_number: int) -> Statement | _MergeStart:
+    parts = _split_tokens(tokens, TokenKind.AND)
+    statement = _parse_statement_atom(parts[0], line_number)
+    for part in parts[1:]:
+        right = _parse_statement_atom(part, line_number)
+        statement = Sequence(statement, right)
+    return statement
+
+
+def _parse_statement_atom(tokens: list[Token], line_number: int) -> Statement | _MergeStart:
+    if len(tokens) == 1 and tokens[0].kind == TokenKind.STRING_LITERAL and tokens[0].value.startswith("!"):
+        return StatementBlock(parse(tokens[0].value[1:]))
+    return _parse_simple_statement(tokens, line_number)
+
+
+def _split_tokens(tokens: list[Token], separator: TokenKind) -> list[list[Token]]:
+    parts: list[list[Token]] = []
+    current: list[Token] = []
+    for token in tokens:
+        if token.kind == separator:
+            if not current:
+                raise ParseError(f"Line {token.line}: Missing statement before {token.value}")
+            parts.append(current)
+            current = []
+        else:
+            current.append(token)
+    if not current:
+        raise ParseError(f"Line {tokens[-1].line if tokens else 0}: Missing statement after separator")
+    parts.append(current)
+    return parts
+
+
+def _parse_simple_statement(tokens: list[Token], line_number: int) -> Statement | _MergeStart:
     if len(tokens) == 1 and tokens[0].kind == TokenKind.EXIT:
         return Exit()
 
-    stream = _TokenCursor(tokens, line.number)
+    stream = _TokenCursor(tokens, line_number)
     if not stream.accept(TokenKind.GIT):
-        raise ParseError(f"Line {line.number}: Expected a git command")
+        raise ParseError(f"Line {line_number}: Expected a git command")
     command = stream.expect_any(_COMMANDS | {TokenKind.IDENTIFIER}, "git command")
 
     if command.kind == TokenKind.COMMIT:
@@ -659,45 +732,6 @@ def _parse_commit(stream: _TokenCursor) -> Statement:
         return Commit(None, amend)
 
     return Commit(_parse_integer_literal(value, stream.line_number, "git commit"), amend)
-
-
-def _parse_triple_commit_string(text: str, line_number: int) -> CommitString | None:
-    message_start = _triple_commit_string_start(text)
-    if message_start is None:
-        return None
-
-    opening = message_start + 3
-    closing = text.find('"""', opening)
-    if closing == -1:
-        raise ParseError(f"Line {line_number}: triple-quoted git commit string is missing closing quote")
-
-    prefix_parts = _token_values(_lex_statement(text[:message_start], line_number))
-    _validate_triple_commit_prefix(prefix_parts, line_number)
-
-    after = text[closing + 3 :]
-    if _strip_comment(after).strip():
-        raise ParseError(f"Line {line_number}: Unexpected git commit argument after triple-quoted string")
-
-    return CommitString(text[opening:closing])
-
-
-def _validate_triple_commit_prefix(parts: list[str], line_number: int) -> None:
-    if len(parts) < 3 or parts[0] != "git" or parts[1] != "commit":
-        raise ParseError(f"Line {line_number}: Expected a git command")
-
-    value_seen = False
-    for arg in parts[2:]:
-        if arg == "--amend":
-            raise ParseError(f"Line {line_number}: --amend is not allowed for string commits")
-        if arg in {"-m", "-m="}:
-            if value_seen:
-                raise ParseError(f"Line {line_number}: git commit accepts only one -m value")
-            value_seen = True
-            continue
-        raise ParseError(f"Line {line_number}: Unexpected git commit argument: {arg}")
-
-    if not value_seen:
-        raise ParseError(f"Line {line_number}: git commit -m needs a value")
 
 
 def _parse_cherry_pick(stream: _TokenCursor) -> CherryPick | CherryPickRange:
@@ -967,6 +1001,8 @@ def _validate_function_statement_starts(lines: list[_Line]) -> None:
             continue
         if tokens[0].kind in {TokenKind.GIT, TokenKind.EXIT}:
             continue
+        if tokens[0].kind == TokenKind.STRING_LITERAL and tokens[0].value.startswith("!"):
+            continue
         raise ParseError(f"Line {line.number}: Function body statements must start with git or be exit")
 
 
@@ -1203,30 +1239,6 @@ def _strip_comment(text: str) -> str:
     return strip_comment(text)
 
 
-def _split_statement_separators(text: str, line_number: int) -> list[str]:
-    tokens = _lex_statement(text, line_number)
-    split_columns = [token.column - 1 for token in tokens if token.kind == TokenKind.AND]
-    if not split_columns:
-        return [text.strip()] if text.strip() else []
-
-    parts: list[str] = []
-    start = 0
-    for column in split_columns:
-        part = text[start:column].strip()
-        if part:
-            parts.append(part)
-        start = column + 2
-    part = text[start:].strip()
-    if part:
-        parts.append(part)
-    return parts
-
-
-def _is_multiline_alias_start(text: str) -> bool:
-    stripped = text.strip()
-    return stripped.startswith("git config alias.") and _has_unclosed_single_quote(text)
-
-
 def _is_triple_commit_string_start(text: str) -> bool:
     return _triple_commit_string_start(text) is not None
 
@@ -1245,23 +1257,7 @@ def _triple_commit_string_start(text: str) -> int | None:
 
 
 def _has_unclosed_single_quote(text: str) -> bool:
-    in_single_quote = False
-    in_double_quote = False
-    escaped = False
-
-    for char in text:
-        if escaped:
-            escaped = False
-            continue
-        if char == "\\":
-            escaped = True
-            continue
-        if char == '"' and not in_single_quote:
-            in_double_quote = not in_double_quote
-            continue
-        if char == "'" and not in_double_quote:
-            in_single_quote = not in_single_quote
-    return in_single_quote
+    return lexer_has_unclosed_single_quote(text)
 
 
 def _commit_message_start(text: str) -> int | None:

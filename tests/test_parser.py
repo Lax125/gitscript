@@ -28,7 +28,10 @@ from gitscript.statements import (
     RevertRange,
     RevList,
     RevListRange,
+    Rescue,
+    Sequence,
     Show,
+    StatementBlock,
 )
 
 
@@ -198,17 +201,18 @@ class ParserTests(unittest.TestCase):
             """
         )
 
-        self.assertEqual(len(statements), 6)
-        self.assertIsInstance(statements[0], Commit)
-        self.assertEqual(statements[0].value, 1)
-        self.assertIsInstance(statements[1], Commit)
-        self.assertEqual(statements[1].value, 0)
-        self.assertIsInstance(statements[2], DefineAlias)
-        self.assertEqual(statements[2].name, "cp")
-        self.assertEqual(statements[2].fragment, "cherry-pick")
-        self.assertIsInstance(statements[3], DefineFunction)
+        self.assertEqual(len(statements), 5)
+        self.assertIsInstance(statements[0], Sequence)
+        self.assertIsInstance(statements[0].left, Commit)
+        self.assertEqual(statements[0].left.value, 1)
+        self.assertIsInstance(statements[0].right, Commit)
+        self.assertEqual(statements[0].right.value, 0)
+        self.assertIsInstance(statements[1], DefineAlias)
+        self.assertEqual(statements[1].name, "cp")
+        self.assertEqual(statements[1].fragment, "cherry-pick")
+        self.assertIsInstance(statements[2], DefineFunction)
         self.assertEqual(
-            [(parameter.kind, parameter.name) for parameter in statements[3].parameters],
+            [(parameter.kind, parameter.name) for parameter in statements[2].parameters],
             [
                 ("-l", "label"),
                 ("-b", "target"),
@@ -218,10 +222,33 @@ class ParserTests(unittest.TestCase):
                 ("-o", "strategy"),
             ],
         )
-        self.assertIsInstance(statements[4], AliasCall)
-        self.assertEqual(statements[4].name, "later")
-        self.assertEqual(statements[4].args, ["new-label", "other", "main", "saved", "main", "max"])
-        self.assertIsInstance(statements[5], Exit)
+        self.assertIsInstance(statements[3], AliasCall)
+        self.assertEqual(statements[3].name, "later")
+        self.assertEqual(statements[3].args, ["new-label", "other", "main", "saved", "main", "max"])
+        self.assertIsInstance(statements[4], Exit)
+
+    def test_parse_statement_composition_precedence_and_anonymous_blocks(self):
+        statements = parse(
+            """
+            git commit 1 && git commit 2 || git commit 3 && '!git commit 4 && git commit 5'
+            """
+        )
+
+        self.assertEqual(len(statements), 1)
+        self.assertIsInstance(statements[0], Rescue)
+        self.assertIsInstance(statements[0].left, Sequence)
+        self.assertIsInstance(statements[0].right, Sequence)
+        self.assertIsInstance(statements[0].right.right, StatementBlock)
+
+    def test_parse_nested_anonymous_blocks_with_apostrophes_in_strings(self):
+        statements = parse("'!git commit -m \"don't\" && '!git commit 2''")
+
+        self.assertEqual(len(statements), 1)
+        self.assertIsInstance(statements[0], StatementBlock)
+        self.assertIsInstance(statements[0].statements[0], Sequence)
+        self.assertIsInstance(statements[0].statements[0].left, CommitString)
+        self.assertEqual(statements[0].statements[0].left.value, "don't")
+        self.assertIsInstance(statements[0].statements[0].right, StatementBlock)
 
     def test_parse_conflict_block(self):
         statements = parse(

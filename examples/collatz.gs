@@ -3,9 +3,16 @@ git tag root
 # Read the starting value.
 git checkout -b prompt root
 git commit -m "Initial number: "
-git log --oneline root..prompt
 git checkout -b n root
-git commit  # initial number
+
+git merge -s is read_number
+<<<<<<< n
+    git log --oneline root..prompt
+    git commit || git merge --continue read_number
+    git merge --abort read_number
+=======
+    git merge --abort read_number
+>>>>>>> root
 
 # Constants used for parity and for the odd step.
 git checkout -b one root

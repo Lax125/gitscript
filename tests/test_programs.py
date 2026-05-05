@@ -471,11 +471,99 @@ git log HEAD~19..HEAD
             =======
             >>>>>>> main && git show
             """,
+            """
+            git merge
+            <<<<<<< counter || git show
+            =======
+            >>>>>>> main
+            """,
         ]
         for source in invalid_sources:
             with self.subTest(source=source):
                 with self.assertRaises(ParseError):
                     parse(source)
+
+    def test_statement_composition_can_include_merge_conflicts(self):
+        repo, output = run_program(
+            """
+            git checkout -b counter
+            git commit 1
+            git checkout main
+            git merge -s gt && git show counter
+            <<<<<<< counter
+                git merge --abort
+            =======
+                git commit 9
+            >>>>>>> main
+            """
+        )
+
+        self.assertEqual(output, "1\n")
+        self.assertEqual(repo.branches["counter"].value, 1)
+
+    def test_error_recovery_runs_fallback_for_runtime_errors(self):
+        repo, output = run_program(
+            """
+            git commit 10
+            git checkout -b zero
+            git commit 0
+            git checkout main
+            git cherry-pick zero -s=div || git commit 99
+            git show
+            git show missing || git commit 7
+            git show
+            """
+        )
+
+        self.assertEqual(output, "99\n7\n")
+        self.assertEqual(repo.branches["main"].value, 7)
+
+    def test_error_recovery_handles_integer_input_errors(self):
+        repo, output = run_program(
+            """
+            git commit || git commit 0
+            git show
+            """,
+            ["not-an-int"],
+        )
+
+        self.assertEqual(output, "0\n")
+        self.assertEqual(repo.branches["main"].value, 0)
+
+    def test_sequence_skips_right_side_after_error(self):
+        with self.assertRaisesRegex(RuntimeError, "missing"):
+            run_program("git show missing && git commit 1")
+
+    def test_anonymous_block_groups_multiple_statements(self):
+        repo, output = run_program(
+            """
+            '!
+                git commit 1
+                git commit 2
+            ' || git commit 3
+            git show
+            """
+        )
+
+        self.assertEqual(output, "2\n")
+        self.assertEqual(repo.branches["main"].value, 2)
+
+    def test_anonymous_blocks_can_nest_and_strings_can_contain_single_quotes(self):
+        repo, output = run_program(
+            """
+            git tag root
+            '!
+                git commit -m "don't"
+                '!git commit 2'
+            '
+            git show HEAD~5
+            git show HEAD~1
+            git show
+            """
+        )
+
+        self.assertEqual(output, "116\n100\n2\n")
+        self.assertEqual(repo.branches["main"].value, 2)
 
     def test_shortform_aliases_support_repeated_substitution(self):
         repo, output = run_program(
@@ -490,19 +578,21 @@ git log HEAD~19..HEAD
         self.assertEqual(output, "5\n")
         self.assertEqual(repo.branches["main"].value, 5)
 
-    def test_shortform_expansion_must_be_exactly_one_statement(self):
+    def test_shortform_expansion_accepts_one_composed_statement(self):
         repo, output = run_program("git config alias.twice 'commit 20 && git show'\n")
 
         self.assertEqual(output, "")
         self.assertIn("twice", repo.aliases)
 
-        with self.assertRaisesRegex(RuntimeError, "exactly one statement"):
-            run_program(
-                """
-                git config alias.twice 'commit 20 && git show'
-                git twice
-                """
-            )
+        repo, output = run_program(
+            """
+            git config alias.twice 'commit 20 && git show'
+            git twice
+            """
+        )
+
+        self.assertEqual(output, "20\n")
+        self.assertEqual(repo.branches["main"].value, 20)
 
     def test_shortform_expansion_can_define_alias_function_and_multiline_string(self):
         repo, output = run_program(
