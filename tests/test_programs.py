@@ -43,7 +43,7 @@ git log HEAD~19..HEAD
         repo, output = run_program(
             """
             git commit
-            git commit --amend -m 8
+            git commit --amend 8
             git show
             git reset HEAD~1
             git show
@@ -57,9 +57,9 @@ git log HEAD~19..HEAD
     def test_string_input_commit_and_null_characters_are_printed(self):
         repo, output = run_program(
             'git tag root\n'
-            'git commit -m "\n'
+            'git commit -m\n'
             'git log root..HEAD\n'
-            'git commit -m 0\n'
+            'git commit 0\n'
             'git log -n 1\n',
             inputs=["Yo"],
         )
@@ -72,7 +72,7 @@ git log HEAD~19..HEAD
             parse('git commit --amend -m "unsafe"')
 
         with self.assertRaises(ParseError):
-            parse('git commit --amend -m "\n')
+            parse('git commit --amend -m\n')
 
         with self.assertRaises(ParseError):
             parse('git commit --amend -m """unsafe"""')
@@ -92,8 +92,8 @@ git log HEAD~19..HEAD
     def test_branch_tag_checkout_create_at_and_delete(self):
         repo, output = run_program(
             """
-            git commit -m 1
-            git commit -m 2
+            git commit 1
+            git commit 2
             git branch one HEAD~1
             git checkout -b two one
             git show
@@ -128,9 +128,9 @@ git log HEAD~19..HEAD
     def test_all_cherry_pick_strategies(self):
         repo, output = run_program(
             """
-            git commit -m 10
+            git commit 10
             git branch ten
-            git commit -m 3
+            git commit 3
             git cherry-pick ten -s=+
             git show
             git reset HEAD~1
@@ -185,10 +185,10 @@ git log HEAD~19..HEAD
     def test_commit_refs_static_dynamic_parenthesized_and_missing_ancestor(self):
         repo, output = run_program(
             """
-            git commit -m 65
-            git commit -m 66
+            git commit 65
+            git commit 66
             git branch data
-            git commit -m 1
+            git commit 1
             git branch offset
             git show data~1
             git show data~(offset)
@@ -199,14 +199,14 @@ git log HEAD~19..HEAD
         self.assertEqual(repo.branches["offset"].value, 1)
 
         with self.assertRaisesRegex(RuntimeError, "Ancestor does not exist"):
-            run_program("git commit -m 1\ngit show HEAD~2\n")
+            run_program("git commit 1\ngit show HEAD~2\n")
 
     def test_commit_ranges_log_and_rev_list(self):
         repo, output = run_program(
             """
-            git commit -m 65
-            git commit -m 66
-            git commit -m 0
+            git commit 65
+            git commit 66
+            git commit 0
             git log HEAD~3..HEAD
             git log --reverse -n 2 HEAD
             git rev-list -n=3 HEAD
@@ -221,10 +221,10 @@ git log HEAD~19..HEAD
     def test_cherry_pick_and_revert_ref_and_range(self):
         repo, output = run_program(
             """
-            git commit -m 1
-            git commit -m 2
+            git commit 1
+            git commit 2
             git branch two
-            git commit -m 3
+            git commit 3
             git cherry-pick two
             git rev-list -n 1
             git revert two
@@ -248,12 +248,12 @@ git log HEAD~19..HEAD
     def test_rebase_replays_current_branch_onto_target(self):
         repo, output = run_program(
             """
-            git commit -m 1
+            git commit 1
             git checkout -b feature
-            git commit -m 2
-            git commit -m 3
+            git commit 2
+            git commit 3
             git checkout main
-            git commit -m 9
+            git commit 9
             git checkout feature
             git rebase main
             git rev-list -n 5
@@ -267,9 +267,9 @@ git log HEAD~19..HEAD
         repo, output = run_program(
             """
             git checkout -b counter
-            git commit -m 3
+            git commit 3
             git checkout -b one
-            git commit -m 1
+            git commit 1
 
             git checkout main
 
@@ -285,13 +285,13 @@ git log HEAD~19..HEAD
             git show counter
 
             git checkout main
-            git commit -m 9
+            git commit 9
             git branch same
             git merge -s is
             <<<<<<< main
-                git commit -m 1
+                git commit 1
             =======
-                git commit -m 2
+                git commit 2
             >>>>>>> same
 
             git show
@@ -306,9 +306,9 @@ git log HEAD~19..HEAD
         repo, output = run_program(
             """
             git checkout -b counter
-            git commit -m 2
+            git commit 2
             git checkout -b one
-            git commit -m 1
+            git commit 1
             git checkout main
 
             git merge -s > loop
@@ -335,9 +335,9 @@ git log HEAD~19..HEAD
                 <<<<<<< main
                     git merge --abort exit
                 =======
-                    git commit -m 9
+                    git commit 9
                 >>>>>>> main
-                git commit -m 8
+                git commit 8
             >>>>>>> counter
 
             git show main
@@ -353,8 +353,8 @@ git log HEAD~19..HEAD
             """
             git config commit.verbose 2
             git tag root
-            git commit -m 1
-            git commit --amend -m 2
+            git commit 1
+            git commit --amend 2
             git commit -m "Hi"
             git branch base
             git cherry-pick base
@@ -362,10 +362,10 @@ git log HEAD~19..HEAD
             git revert base
             git revert root..base
             git checkout -b feature root
-            git commit -m 7
+            git commit 7
             git rebase main
             git config commit.verbose false
-            git commit -m 99
+            git commit 99
             """
         )
 
@@ -386,9 +386,9 @@ git log HEAD~19..HEAD
         repo, output, debug = run_program_with_debug(
             """
             git checkout -b counter
-            git commit -m 1
+            git commit 1
             git checkout -b one
-            git commit -m 1
+            git commit 1
             git checkout main
 
             git config merge.verbosity 2
@@ -405,9 +405,9 @@ git log HEAD~19..HEAD
             git checkout main
             git merge -s ==
             <<<<<<< main
-                git commit -m 9
+                git commit 9
             =======
-                git commit -m 8
+                git commit 8
             >>>>>>> counter
 
             git show counter
@@ -426,7 +426,7 @@ git log HEAD~19..HEAD
     def test_statement_separator_and_true_false_integer_literals(self):
         repo, output = run_program(
             """
-            git commit -m true && git commit -m false && git rev-list -n 2
+            git commit true && git commit false && git rev-list -n 2
             """
         )
 
@@ -437,13 +437,13 @@ git log HEAD~19..HEAD
         repo, output = run_program(
             """
             git checkout -b counter
-            git commit -m 1
+            git commit 1
             git checkout main
             git merge -s >
             <<<<<<< counter
                 git merge --abort
             =======
-                git commit -m 9
+                git commit 9
             >>>>>>> main
             git show counter
             """
@@ -480,7 +480,7 @@ git log HEAD~19..HEAD
     def test_shortform_aliases_support_repeated_substitution(self):
         repo, output = run_program(
             """
-            git config alias.c 'commit -m'
+            git config alias.c 'commit'
             git config alias.cm 'c'
             git cm 5
             git show
@@ -491,7 +491,7 @@ git log HEAD~19..HEAD
         self.assertEqual(repo.branches["main"].value, 5)
 
     def test_shortform_expansion_must_be_exactly_one_statement(self):
-        repo, output = run_program("git config alias.twice 'commit -m 20 && git show'\n")
+        repo, output = run_program("git config alias.twice 'commit 20 && git show'\n")
 
         self.assertEqual(output, "")
         self.assertIn("twice", repo.aliases)
@@ -499,7 +499,7 @@ git log HEAD~19..HEAD
         with self.assertRaisesRegex(RuntimeError, "exactly one statement"):
             run_program(
                 """
-                git config alias.twice 'commit -m 20 && git show'
+                git config alias.twice 'commit 20 && git show'
                 git twice
                 """
             )
@@ -507,10 +507,10 @@ git log HEAD~19..HEAD
     def test_shortform_expansion_can_define_alias_function_and_multiline_string(self):
         repo, output = run_program(
             '''\
-git config alias.make-short "config alias.c 'commit -m'"
+git config alias.make-short "config alias.c 'commit'"
 git make-short
 git c 12
-git config alias.make-function "config alias.bump '!git commit -m 3'"
+git config alias.make-function "config alias.bump '!git commit 3'"
 git make-function
 git bump
 git config alias.say 'commit -m'
@@ -546,7 +546,7 @@ git log HEAD~3..HEAD
         repo, output = run_program(
             """
             git tag root
-            git commit -m 10
+            git commit 10
             git branch ten
             git checkout -b out root
             git config alias.use -i amount -s text -r source -r root_ref -c condition -o strategy '!
@@ -554,10 +554,10 @@ git log HEAD~3..HEAD
                 git cherry-pick $source -s=$strategy
                 git merge -s $condition
                 <<<<<<< main
-                    git commit -m $amount
+                    git commit $amount
                     git commit -m "$text"
                 =======
-                    git commit -m 0
+                    git commit 0
                 >>>>>>> $root_ref
             '
             git use 7 "A" ten root > max
@@ -573,9 +573,9 @@ git log HEAD~3..HEAD
         repo, output = run_program(
             """
             git config alias.make -i amount=1 '!
-                git commit -m $amount
+                git commit $amount
                 exit
-                git commit -m 99
+                git commit 99
             '
             git make
             git make --amount 4
@@ -593,7 +593,7 @@ git log HEAD~3..HEAD
             git config alias.localize '!
                 git branch branch1
                 git checkout branch1
-                git commit -m 5
+                git commit 5
             '
             git localize
             git checkout branch1
@@ -609,13 +609,13 @@ git log HEAD~3..HEAD
         repo, output = run_program(
             """
             git checkout -b work
-            git commit -m 1
+            git commit 1
             git config alias.bump '!
                 git checkout main
-                git commit -m 2
+                git commit 2
                 git branch temp
                 exit
-                git commit -m 99
+                git commit 99
             '
             git bump
             git show work
@@ -630,9 +630,9 @@ git log HEAD~3..HEAD
     def test_function_local_tags_shadow_globals_and_are_cleaned_up(self):
         repo, output = run_program(
             """
-            git commit -m 4
+            git commit 4
             git tag saved
-            git commit -m 9
+            git commit 9
             git config alias.local_tag '!
                 git tag saved
                 git show saved
@@ -648,7 +648,7 @@ git log HEAD~3..HEAD
     def test_function_can_use_passed_unprotected_branch_but_not_main_or_current_branch(self):
         repo, output = run_program(
             """
-            git commit -m 7
+            git commit 7
             git branch other
             git reset HEAD~1
             git config alias.peek -b target '!
@@ -694,11 +694,11 @@ git log HEAD~3..HEAD
     def test_label_parameters_require_unused_names_and_create_refs_in_caller_frame(self):
         repo, output = run_program(
             """
-            git commit -m 4
+            git commit 4
             git config alias.make_refs -l branch_name -l tag_name '!
                 git branch $branch_name
                 git checkout $branch_name
-                git commit -m 9
+                git commit 9
                 git tag $tag_name
                 git show $tag_name
             '
@@ -729,7 +729,7 @@ git log HEAD~3..HEAD
             git config alias.inner -l label '!
                 git branch $label
                 git checkout $label
-                git commit -m 3
+                git commit 3
             '
             git config alias.outer '!
                 git inner made
@@ -747,10 +747,10 @@ git log HEAD~3..HEAD
         repo, output = run_program(
             """
             git checkout -b work
-            git commit -m 1
+            git commit 1
             git config alias.bump -p target '!
                 git checkout $target
-                git commit -m 2
+                git commit 2
             '
             git bump work
             git show work
@@ -788,9 +788,9 @@ git log HEAD~3..HEAD
     def test_tag_parameters_require_existing_tags(self):
         repo, output = run_program(
             """
-            git commit -m 6
+            git commit 6
             git tag saved
-            git commit -m 9
+            git commit 9
             git config alias.peek -t mark '!
                 git show $mark
             '
@@ -858,7 +858,7 @@ git log HEAD~3..HEAD
     def test_global_exit_stops_execution(self):
         repo, output = run_program(
             """
-            git commit -m 1 && exit && git commit -m 2
+            git commit 1 && exit && git commit 2
             git show
             """
         )

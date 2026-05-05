@@ -6,7 +6,7 @@ git commit  # sequence length
 
 # Constants and working branches for the pair (a, b).
 git checkout -b one root
-git commit -m 1
+git commit 1
 
 git branch sequence root
 git branch a root

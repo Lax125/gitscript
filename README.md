@@ -65,10 +65,10 @@ Hello, World!
 
 ```gitscript
 git checkout -b counter
-git commit -m 3
+git commit 3
 
 git checkout -b one
-git commit -m 1
+git commit 1
 
 git checkout counter
 git merge -s >

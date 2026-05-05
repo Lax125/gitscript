@@ -3,7 +3,7 @@ git tag root
 # Constants and global work branches. Each word is stored contiguously in
 # words, while fences stores the history depths that surround each word.
 git checkout -b one root
-git commit -m 1
+git commit 1
 
 git branch words root
 git branch word root
@@ -64,7 +64,7 @@ git config alias.compare_words -r left_pos -r right_pos -b comparison_ref -r roo
     <<<<<<< $words_ref~left_cursor
         git checkout $comparison_ref
         git reset $root_ref
-        git commit -m 1
+        git commit 1
         git merge --abort compare
     =======
         git merge -s is
@@ -77,7 +77,7 @@ git config alias.compare_words -r left_pos -r right_pos -b comparison_ref -r roo
             <<<<<<< $words_ref~left_cursor
                 git checkout $comparison_ref
                 git reset $root_ref
-                git commit -m 1
+                git commit 1
                 git merge --abort compare
             =======
                 git merge -s >
@@ -99,19 +99,19 @@ git config alias.compare_words -r left_pos -r right_pos -b comparison_ref -r roo
 
 # Read words one at a time; an empty line ends input.
 git checkout word
-git commit -m "
+git commit -m
 
 git merge -s is read
 <<<<<<< word
     git merge --abort read
 =======
     git checkout words
-    git commit -m 0
+    git commit 0
     git cherry-pick root..word
 
     git checkout word
     git reset root
-    git commit -m "
+    git commit -m
     git merge --continue read
 >>>>>>> root
 
@@ -179,7 +179,7 @@ git merge -s > sort
             git reset current_pos
             git checkout have_candidate
             git reset root
-            git commit -m 1
+            git commit 1
         =======
             git compare_words current_pos best_pos comparison root words word_count fences one
             git merge -s >

@@ -52,10 +52,10 @@ git branch output root
 git branch cursor template
 git branch quote root
 git checkout quote
-git commit -m 34
+git commit 34
 git branch marker root
 git checkout marker
-git commit -m 64
+git commit 64
 
 git merge -s is loop
 <<<<<<< cursor
@@ -83,10 +83,10 @@ git branch output root
 git branch cursor template
 git branch quote root
 git checkout quote
-git commit -m 34
+git commit 34
 git branch marker root
 git checkout marker
-git commit -m 64
+git commit 64
 
 git merge -s is loop
 <<<<<<< cursor

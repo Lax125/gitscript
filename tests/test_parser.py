@@ -37,7 +37,7 @@ class ParserTests(unittest.TestCase):
         statements = parse(
             """
             git commit   # input integer
-            git commit --amend -m 42
+            git commit --amend 42
             git commit -m "Hello, World!"
             git checkout -b feature
             git cherry-pick main -s=-
@@ -73,7 +73,7 @@ class ParserTests(unittest.TestCase):
         self.assertIsInstance(statements[6].ref, ConstantOffsetRef)
 
     def test_parse_string_input_commit(self):
-        statements = parse('git commit -m "\n')
+        statements = parse("git commit -m\n")
 
         self.assertIsInstance(statements[0], CommitString)
         self.assertIsNone(statements[0].value)
@@ -94,31 +94,42 @@ class ParserTests(unittest.TestCase):
         self.assertIsInstance(statements[1], CommitString)
         self.assertEqual(statements[1].value, "no trailing newline")
 
-    def test_commit_message_option_accepts_space_and_equals_forms(self):
+    def test_commit_accepts_integer_and_string_forms(self):
         statements = parse(
-            "git commit -m 42\n"
-            "git commit -m=43\n"
+            "git commit 42\n"
+            "git commit true\n"
             'git commit -m "forty four"\n'
             'git commit -m="forty five"\n'
             'git commit -m="""equals form"""\n'
+            "git commit -m\n"
         )
 
         self.assertIsInstance(statements[0], Commit)
         self.assertEqual(statements[0].value, 42)
         self.assertIsInstance(statements[1], Commit)
-        self.assertEqual(statements[1].value, 43)
+        self.assertEqual(statements[1].value, 1)
         self.assertIsInstance(statements[2], CommitString)
         self.assertEqual(statements[2].value, "forty four")
         self.assertIsInstance(statements[3], CommitString)
         self.assertEqual(statements[3].value, "forty five")
         self.assertIsInstance(statements[4], CommitString)
         self.assertEqual(statements[4].value, "equals form")
+        self.assertIsInstance(statements[5], CommitString)
+        self.assertIsNone(statements[5].value)
 
     def test_quoted_numeric_commit_message_is_a_string(self):
         statements = parse('git commit -m "42"')
 
         self.assertIsInstance(statements[0], CommitString)
         self.assertEqual(statements[0].value, "42")
+
+        single_quoted_numeric = parse("git commit -m '42'")
+        self.assertIsInstance(single_quoted_numeric[0], CommitString)
+        self.assertEqual(single_quoted_numeric[0].value, "42")
+
+        single_quoted_text = parse("git commit -m 'forty two'")
+        self.assertIsInstance(single_quoted_text[0], CommitString)
+        self.assertEqual(single_quoted_text[0].value, "forty two")
 
     def test_cherry_pick_strategy_option_accepts_space_and_equals_forms(self):
         statements = parse(
@@ -177,7 +188,7 @@ class ParserTests(unittest.TestCase):
     def test_parse_statement_separator_aliases_functions_and_exit(self):
         statements = parse(
             """
-            git commit -m true && git commit -m false
+            git commit true && git commit false
             git config alias.cp 'cherry-pick'
             git config alias.pick -l label -b target -p owner -t mark -r source -o strategy '!
                 git cherry-pick $source -s=$strategy && exit
@@ -401,7 +412,7 @@ class ParserTests(unittest.TestCase):
             parse('git commit -m """unfinished\nstring')
 
     def test_repl_parse_accepts_complete_single_statement(self):
-        statements = parse_repl("git commit -m 5")
+        statements = parse_repl("git commit 5")
 
         self.assertEqual(len(statements), 1)
         self.assertIsInstance(statements[0], Commit)

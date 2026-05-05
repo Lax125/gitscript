@@ -17,7 +17,7 @@ class MainTests(unittest.TestCase):
         with contextlib.redirect_stdout(output):
             returned = run_statements(
                 """
-                git commit -m 5
+                git commit 5
                 git show
                 """,
                 repo,
@@ -29,7 +29,7 @@ class MainTests(unittest.TestCase):
 
     def test_run_file_executes_gitscript_file(self):
         with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as file:
-            file.write("git commit -m 13\n")
+            file.write("git commit 13\n")
             filename = file.name
 
         try:
@@ -41,7 +41,7 @@ class MainTests(unittest.TestCase):
 
     def test_main_runs_file_when_filename_is_given(self):
         with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as file:
-            file.write("git commit -m 21\ngit show\n")
+            file.write("git commit 21\ngit show\n")
             filename = file.name
 
         output = io.StringIO()
@@ -63,7 +63,7 @@ class MainTests(unittest.TestCase):
 
     def test_repl_runs_statements_and_keeps_repo_state(self):
         output = io.StringIO()
-        inputs = iter(["git commit -m 4", "git commit -m 6", "git show", "quit"])
+        inputs = iter(["git commit 4", "git commit 6", "git show", "quit"])
 
         with patch("builtins.input", side_effect=lambda prompt="": next(inputs)):
             with contextlib.redirect_stdout(output):
@@ -76,9 +76,9 @@ class MainTests(unittest.TestCase):
         inputs = iter(
             [
                 "git checkout -b a",
-                "git commit -m 6",
+                "git commit 6",
                 "git checkout -b b",
-                "git commit -m 1",
+                "git commit 1",
                 "git merge -s >",
                 "<<<<<<< a",
                 "git checkout a",

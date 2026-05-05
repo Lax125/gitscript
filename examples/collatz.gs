@@ -6,11 +6,11 @@ git commit  # initial number
 
 # Constants used for parity and for the odd step.
 git checkout -b one root
-git commit -m 1
+git commit 1
 git checkout -b two root
-git commit -m 2
+git commit 2
 git checkout -b three root
-git commit -m 3
+git commit 3
 
 git branch sequence root
 git branch parity root

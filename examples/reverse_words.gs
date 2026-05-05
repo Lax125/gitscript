@@ -6,7 +6,7 @@ git commit -m " "
 
 # Read the sentence to reverse.
 git checkout -b input root
-git commit -m "  # sentence to reverse
+git commit -m  # sentence to reverse
 
 # word_start marks the start of the current word; word_end walks backward.
 git branch reversed root

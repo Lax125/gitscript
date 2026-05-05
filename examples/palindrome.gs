@@ -2,7 +2,7 @@ git tag root
 
 # Read the candidate word, then keep a tag to the original input for output.
 git checkout -b input
-git commit -m "
+git commit -m
 git tag original_input
 
 # Build a mirrored walk by reverting every character commit.
@@ -41,7 +41,7 @@ git merge -s is compare
         # Mismatch. Mark the difference and force the outer loop to finish.
         git checkout difference
         git reset root
-        git commit -m 1
+        git commit 1
         git merge --abort compare
     >>>>>>> root
     git merge --continue

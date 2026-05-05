@@ -6,9 +6,9 @@ git commit  # maximum number to test
 
 # Start testing candidates at 2.
 git checkout -b one root
-git commit -m 1
+git commit 1
 git checkout -b two root
-git commit -m 2
+git commit 2
 
 git branch primes root
 git branch candidate two
@@ -38,7 +38,7 @@ git merge -s <=
         <<<<<<< remainder
             git checkout composite
             git reset root
-            git commit -m 1
+            git commit 1
             git merge --abort walk_primes
         =======
             git checkout walker

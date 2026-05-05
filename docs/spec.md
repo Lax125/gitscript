@@ -242,31 +242,33 @@ At verbosity `2`, continue and abort logs include:
 ### `git commit` (integer)
 
 ```gitscript
-git commit [--amend] [-m <int>]
+git commit [--amend] [<int>]
 ```
 
 * Creates a new commit with an integer value
-* If `-m` is omitted, reads from stdin
+* If the integer is omitted, reads an integer literal from stdin
 * `--amend` uses the current commit's parent
+* `-m` is not used for integer commits
 
 ---
 
-### `git commit -m "` (string input)
+### `git commit -m` (string input)
 
 ```gitscript
-git commit -m "
+git commit -m
 ```
 
-* Reads a string from stdin
+* Reads a single-line string from stdin
 * Stores it as a sequence of commits (one per character)
 * Characters are stored in **reverse order** (last character closest to HEAD)
 * `--amend` is not allowed for string commits
+* `-m` always selects string commit mode
 
 ---
 
 ### `git commit -m "string"`
 
-Same as above, but inline.
+Same as above, but inline. A string value can also be supplied with `-m=`.
 
 ---
 
@@ -540,7 +542,7 @@ Expanding a shortform must produce exactly one statement. It cannot produce mult
 For example, this definition is accepted:
 
 ```gitscript
-git config alias.ci 'commit -m'
+git config alias.ci 'commit'
 ```
 
 This call expands to one statement:
@@ -552,7 +554,7 @@ git ci 20
 This definition is also accepted, because shortforms are not validated when defined:
 
 ```gitscript
-git config alias.abc 'commit -m 20 && git show'
+git config alias.abc 'commit 20 && git show'
 ```
 
 But running it is an error:
@@ -648,7 +650,7 @@ Function definitions can declare named parameters before the function body:
 
 ```gitscript
 git config alias.foo -i my_int -s my_string '!
-  git commit -m $my_int
+  git commit $my_int
   git commit -m "$my_string"
 '
 ```
@@ -777,7 +779,7 @@ Defaults are declared by assigning a literal value in the parameter declaration:
 
 ```gitscript
 git config alias.foo -i count=1 -s message="ok" '!
-  git commit -m $count
+  git commit $count
   git commit -m "$message"
 '
 ```
@@ -813,13 +815,13 @@ This keeps function calls visually close to Git command options while avoiding a
 Statements are normally separated by newlines. `&&` can be used anywhere a newline could separate statements:
 
 ```gitscript
-git commit -m 1 && git show
+git commit 1 && git show
 ```
 
 This is equivalent to:
 
 ```gitscript
-git commit -m 1
+git commit 1
 git show
 ```
 

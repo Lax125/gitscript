@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from gitscript.commit_range import CommitRange
+from gitscript.lexer import LexError, Token, TokenKind, lex_statement, strip_comment
 from gitscript.refs import BranchRef, ConstantOffsetRef, DynamicOffsetRef, HeadRef, Ref
 from gitscript.operators import Condition, Operator
 from gitscript.statements import (
@@ -234,6 +235,17 @@ class _Parser:
         return ParseError(f"Line {line.number}: {message}")
 
 
+def _lex_statement(text: str, line_number: int) -> list[Token]:
+    try:
+        return lex_statement(text, line_number)
+    except LexError as exc:
+        raise ParseError(str(exc)) from exc
+
+
+def _token_values(tokens: list[Token]) -> list[str]:
+    return [token.value for token in tokens]
+
+
 def _parse_statement(line: _Line) -> Statement | _MergeStart:
     triple_commit = _parse_triple_commit_string(line.text, line.number)
     if triple_commit is not None:
@@ -244,69 +256,65 @@ def _parse_statement(line: _Line) -> Statement | _MergeStart:
     if raw == "exit":
         return Exit()
 
-    if _is_commit_string_input(raw):
-        if "--amend" in raw.split():
-            raise ParseError(f"Line {line.number}: --amend is not allowed for string input commit")
-        return CommitString(None)
-
-    try:
-        parts = shlex.split(raw, posix=True)
-    except ValueError as exc:
-        raise ParseError(f"Line {line.number}: {exc}") from exc
-
-    if len(parts) < 2 or parts[0] != "git":
+    tokens = _lex_statement(raw, line.number)
+    if len(tokens) < 2 or tokens[0].value != "git":
         raise ParseError(f"Line {line.number}: Expected a git command")
 
-    command = parts[1]
-    args = parts[2:]
+    command = tokens[1].value
+    args = tokens[2:]
 
     if command == "commit":
-        return _parse_commit(args, line.number, _commit_message_is_quoted(raw))
+        return _parse_commit(args, line.number)
     if command == "branch":
-        return _parse_branch(args, line.number)
+        return _parse_branch(_token_values(args), line.number)
     if command == "checkout":
-        if len(args) in {2, 3} and args[0] == "-b":
+        arg_values = _token_values(args)
+        if len(arg_values) in {2, 3} and arg_values[0] == "-b":
             return Checkout(
-                _parse_name(args[1], line.number, "branch"),
-                _parse_ref(args[2], line.number) if len(args) == 3 else HeadRef(),
+                _parse_name(arg_values[1], line.number, "branch"),
+                _parse_ref(arg_values[2], line.number) if len(arg_values) == 3 else HeadRef(),
             )
-        _expect_count(args, 1, line.number, "git checkout")
-        return Checkout(_parse_name(args[0], line.number, "branch"))
+        _expect_count(arg_values, 1, line.number, "git checkout")
+        return Checkout(_parse_name(arg_values[0], line.number, "branch"))
     if command == "config":
-        return _parse_config(args, line.number)
+        return _parse_config(_token_values(args), line.number)
     if command == "reset":
-        _expect_count(args, 1, line.number, "git reset")
-        return Reset(_parse_ref(args[0], line.number))
+        arg_values = _token_values(args)
+        _expect_count(arg_values, 1, line.number, "git reset")
+        return Reset(_parse_ref(arg_values[0], line.number))
     if command == "merge":
-        return _parse_merge(args, line.number)
+        return _parse_merge(_token_values(args), line.number)
     if command == "cherry-pick":
-        return _parse_cherry_pick(args, line.number)
+        return _parse_cherry_pick(_token_values(args), line.number)
     if command == "revert":
-        _expect_count(args, 1, line.number, "git revert")
-        target = _parse_range_or_ref(args[0], line.number)
+        arg_values = _token_values(args)
+        _expect_count(arg_values, 1, line.number, "git revert")
+        target = _parse_range_or_ref(arg_values[0], line.number)
         if isinstance(target, CommitRange):
             return RevertRange(target)
         return Revert(target)
     if command == "rebase":
-        _expect_count(args, 1, line.number, "git rebase")
-        return Rebase(_parse_ref(args[0], line.number))
+        arg_values = _token_values(args)
+        _expect_count(arg_values, 1, line.number, "git rebase")
+        return Rebase(_parse_ref(arg_values[0], line.number))
     if command == "tag":
-        return _parse_tag(args, line.number)
+        return _parse_tag(_token_values(args), line.number)
     if command == "show":
-        _expect_count(args, (0, 1), line.number, "git show")
-        return Show(_parse_ref(args[0], line.number) if args else HeadRef())
+        arg_values = _token_values(args)
+        _expect_count(arg_values, (0, 1), line.number, "git show")
+        return Show(_parse_ref(arg_values[0], line.number) if arg_values else HeadRef())
     if command == "log":
-        target, limit, reverse = _parse_list_args(args, line.number, "git log")
+        target, limit, reverse = _parse_list_args(_token_values(args), line.number, "git log")
         if isinstance(target, CommitRange):
             return LogRange(target, limit, reverse)
         return Log(target, limit, reverse)
     if command == "rev-list":
-        target, limit, reverse = _parse_list_args(args, line.number, "git rev-list")
+        target, limit, reverse = _parse_list_args(_token_values(args), line.number, "git rev-list")
         if isinstance(target, CommitRange):
             return RevListRange(target, limit, reverse)
         return RevList(target, limit, reverse)
 
-    return AliasCall(command, args)
+    return AliasCall(command, _token_values(args))
 
 
 def _parse_branch(args: list[str], line_number: int) -> Statement:
@@ -419,43 +427,49 @@ def _validate_parameter_default(kind: str, value: str, line_number: int) -> str:
     raise ParseError(f"Line {line_number}: Unknown function parameter type: {kind}")
 
 
-def _parse_commit(args: list[str], line_number: int, message_is_quoted: bool) -> Statement:
+def _parse_commit(args: list[Token], line_number: int) -> Statement:
     amend = False
-    value_seen = False
-    value: int | str | None = None
+    string_mode = False
+    value: str | None = None
 
     i = 0
     while i < len(args):
-        arg = args[i]
+        arg = args[i].value
         if arg == "--amend":
             amend = True
             i += 1
         elif arg == "-m":
-            if value_seen:
-                raise ParseError(f"Line {line_number}: git commit accepts only one -m value")
-            if i + 1 >= len(args):
-                raise ParseError(f"Line {line_number}: git commit -m needs a value")
-            value = args[i + 1]
-            value_seen = True
-            i += 2
+            if string_mode or value is not None:
+                raise ParseError(f"Line {line_number}: git commit accepts only one value")
+            string_mode = True
+            if i + 1 < len(args):
+                value = args[i + 1].value
+                i += 2
+            else:
+                i += 1
         elif arg.startswith("-m="):
-            if value_seen:
-                raise ParseError(f"Line {line_number}: git commit accepts only one -m value")
+            if string_mode or value is not None:
+                raise ParseError(f"Line {line_number}: git commit accepts only one value")
+            string_mode = True
             value = arg[3:]
-            value_seen = True
             i += 1
-        else:
+        elif arg.startswith("-") and args[i].kind != TokenKind.INT_LITERAL:
             raise ParseError(f"Line {line_number}: Unexpected git commit argument: {arg}")
+        else:
+            if value is not None or string_mode:
+                raise ParseError(f"Line {line_number}: git commit accepts only one value")
+            value = arg
+            i += 1
 
-    if not value_seen:
-        return Commit(None, amend)
-
-    if message_is_quoted:
+    if string_mode:
         if amend:
             raise ParseError(f"Line {line_number}: --amend is not allowed for string commits")
-        return CommitString(str(value))
+        return CommitString(value)
 
-    return Commit(_parse_integer_literal(str(value), line_number, "git commit -m"), amend)
+    if value is None:
+        return Commit(None, amend)
+
+    return Commit(_parse_integer_literal(value, line_number, "git commit"), amend)
 
 
 def _parse_triple_commit_string(text: str, line_number: int) -> CommitString | None:
@@ -468,7 +482,7 @@ def _parse_triple_commit_string(text: str, line_number: int) -> CommitString | N
     if closing == -1:
         raise ParseError(f"Line {line_number}: triple-quoted git commit string is missing closing quote")
 
-    prefix_parts = shlex.split(text[:message_start], posix=True)
+    prefix_parts = _token_values(_lex_statement(text[:message_start], line_number))
     _validate_triple_commit_prefix(prefix_parts, line_number)
 
     after = text[closing + 3 :]
@@ -712,15 +726,15 @@ def _validate_function_parameter_uses(lines: list[_Line], parameter_kinds: dict[
             continue
 
         try:
-            parts = shlex.split(raw, posix=True)
-        except ValueError:
+            tokens = _lex_statement(raw, line.number)
+        except ParseError:
             continue
 
-        if len(parts) < 2 or parts[0] != "git":
+        if len(tokens) < 2 or tokens[0].value != "git":
             continue
 
-        command = parts[1]
-        args = parts[2:]
+        command = tokens[1].value
+        args = _token_values(tokens[2:])
         if command == "commit":
             _validate_commit_parameters(raw, args, parameter_kinds, line.number)
         elif command == "branch":
@@ -747,20 +761,24 @@ _REF_PARAMETER_KINDS = frozenset({"-r", "-l", "-b", "-p", "-t"})
 
 
 def _validate_commit_parameters(raw: str, args: list[str], parameter_kinds: dict[str, str], line_number: int) -> None:
-    message_is_quoted = _commit_message_is_quoted(raw)
+    del raw
+    string_mode = False
     i = 0
     while i < len(args):
         arg = args[i]
         if arg == "--amend":
             i += 1
         elif arg == "-m":
+            string_mode = True
             if i + 1 < len(args):
-                expected = {"-s"} if message_is_quoted else {"-i"}
-                _require_parameter_kinds(args[i + 1], parameter_kinds, expected, line_number, "commit message")
+                _require_parameter_kinds(args[i + 1], parameter_kinds, {"-s"}, line_number, "commit string")
             i += 2
         elif arg.startswith("-m="):
-            expected = {"-s"} if message_is_quoted else {"-i"}
-            _require_parameter_kinds(arg[3:], parameter_kinds, expected, line_number, "commit message")
+            string_mode = True
+            _require_parameter_kinds(arg[3:], parameter_kinds, {"-s"}, line_number, "commit string")
+            i += 1
+        elif not arg.startswith("-") and not string_mode:
+            _require_parameter_kinds(arg, parameter_kinds, {"-i"}, line_number, "integer commit")
             i += 1
         else:
             i += 1
@@ -954,25 +972,7 @@ def _tokenize_ref(text: str, line_number: int) -> list[str]:
 
 
 def _strip_comment(text: str) -> str:
-    in_single_quote = False
-    in_quote = False
-    escaped = False
-    for i, char in enumerate(text):
-        if escaped:
-            escaped = False
-            continue
-        if char == "\\":
-            escaped = True
-            continue
-        if char == "'" and not in_quote:
-            in_single_quote = not in_single_quote
-            continue
-        if char == '"' and not in_single_quote:
-            in_quote = not in_quote
-            continue
-        if char == "#" and not in_quote and not in_single_quote:
-            return text[:i]
-    return text
+    return strip_comment(text)
 
 
 def _split_statement_separators(text: str) -> list[str]:
@@ -1058,18 +1058,6 @@ def _has_unclosed_single_quote(text: str) -> bool:
     return in_single_quote
 
 
-def _is_commit_string_input(text: str) -> bool:
-    message_start = _commit_message_start(text)
-    if message_start is None or message_start >= len(text):
-        return False
-    return text[message_start] == '"' and not _has_closing_quote(text, message_start)
-
-
-def _commit_message_is_quoted(text: str) -> bool:
-    message_start = _commit_message_start(text)
-    return message_start is not None and message_start < len(text) and text[message_start] == '"'
-
-
 def _commit_message_start(text: str) -> int | None:
     try:
         parts = shlex.split(text, posix=False)
@@ -1093,20 +1081,6 @@ def _commit_message_start(text: str) -> int | None:
         index = text.find("-m", index + 1)
 
     return None
-
-
-def _has_closing_quote(text: str, quote_index: int) -> bool:
-    escaped = False
-    for char in text[quote_index + 1 :]:
-        if escaped:
-            escaped = False
-            continue
-        if char == "\\":
-            escaped = True
-            continue
-        if char == '"':
-            return True
-    return False
 
 
 def _is_comment(stripped: str) -> bool:
