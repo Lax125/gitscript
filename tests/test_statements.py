@@ -298,10 +298,12 @@ class StatementTests(unittest.TestCase):
         repo = Repo()
         Branch("feature").run(repo)
         Checkout("feature").run(repo)
+        Branch("earlier").run(repo) # should be sorted before feature (alphabetical)
+        Checkout("earlier").run(repo)
 
         output = capture_output(ListBranches(), repo)
 
-        self.assertEqual(output, "   main!\n * feature\n")
+        self.assertEqual(output, "   main!\n * earlier\n   feature\n")
 
     def test_delete_tags_removes_named_tags(self):
         repo = Repo()

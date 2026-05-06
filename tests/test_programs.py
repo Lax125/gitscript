@@ -1297,14 +1297,14 @@ git log root..HEAD
             """
         )
 
+        self.assertEqual(repo.HEAD, "feature")
         self.assertEqual(
             output,
             "   main! -> caller:feature\n"
-            " * scratch\n"
+            "   owner! -> caller:main\n"
             "   output -> caller:result\n"
-            "   owner! -> caller:main\n",
+            " * scratch\n"
         )
-        self.assertEqual(repo.HEAD, "feature")
 
     def test_branch_listing_shows_nested_binding_layers(self):
         repo, output = run_program(

@@ -474,24 +474,30 @@ class Repo:
     def branch_listing(self) -> list[BranchListingEntry]:
         frame = self.current_frame()
         if frame is None:
-            return [
-                BranchListingEntry(name, name == self.HEAD, name == "main")
-                for name in self.branches
-            ]
+            return sorted(
+                [
+                    BranchListingEntry(name, name == self.HEAD, name == "main")
+                    for name in self.branches
+                ],
+                key=lambda entry: (entry.name != "main", not entry.protected, entry.name)
+            )
 
         entries: list[BranchListingEntry] = []
         if "main" in frame.bindings and frame.bindings["main"].is_branch():
             entries.append(self._branch_binding_entry("main", frame.bindings["main"]))
 
-        entries.extend(
-            BranchListingEntry(name, name == self.HEAD)
-            for name in frame.branches
-        )
-
+        branch_bindings: list[BranchListingEntry] = []
         for name, binding in frame.bindings.items():
             if name == "main" or not binding.is_branch():
                 continue
-            entries.append(self._branch_binding_entry(name, binding))
+            branch_bindings.append(self._branch_binding_entry(name, binding))
+
+        entries.extend(sorted(branch_bindings, key=lambda entry: (not entry.protected, entry.name)))
+
+        entries.extend(sorted([
+            BranchListingEntry(name, name == self.HEAD)
+            for name in frame.branches
+        ], key=lambda entry: entry.name))
 
         return entries
 

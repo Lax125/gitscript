@@ -8,6 +8,11 @@ from gitscript.repo import Repo
 from gitscript.statements import ExitSignal
 
 
+BOLD = "\033[1m"
+LIGHT_RED = "\033[1;31m"
+END = "\033[0m"
+
+
 def run_statements(
         source: str,
         repo: Repo | None = None,
@@ -40,7 +45,7 @@ def repl() -> None:
 
     while True:
         try:
-            line = input("... " if buffer else f"gitscript ({repo.HEAD}) > ")
+            line = input(BOLD + LIGHT_RED + ("... " if buffer else f"gitscript ({repo.HEAD}) > ") + END)
         except EOFError:
             print(flush=True)
             return
