@@ -545,12 +545,16 @@ git log HEAD~19..HEAD
     def test_git_log_graph_all_handles_leftwards_branching(self):
         repo, output = run_program(
             """
-            git tag root
+            git checkout -b a
             git commit 1
-            git checkout -b other root
+            git checkout -b b main
             git commit 2
             git checkout main
             git commit 3
+            git checkout a
+            git commit 4
+            git checkout b
+            git commit 5
             git log --graph --all
             """
         )
@@ -558,14 +562,17 @@ git log HEAD~19..HEAD
         self.assertEqual(
             output,
             dedent(r"""
-                ╤ 3 value=3 char='\x03' [HEAD -> main!]
-                │ ╤ 2 value=2 char='\x02' [branch:other]
-                ╧─┤ 1 value=1 char='\x01'
-                  ╧ 0 value=0 char='\x00' [tag:root]
+                ╤ 5 value=5 char='\x05' [HEAD -> b]
+                │ ╤ 4 value=4 char='\x04' [branch:a]
+                │ │ ╤ 3 value=3 char='\x03' [branch:main!]
+                ╧─┼─┤ 2 value=2 char='\x02'
+                  ╧─┤ 1 value=1 char='\x01'
+                    ╧ 0 value=0 char='\x00'
             """).lstrip(),
         )
         self.assertEqual(repo.branches["main"].value, 3)
-        self.assertEqual(repo.branches["other"].value, 2)
+        self.assertEqual(repo.branches["a"].value, 4)
+        self.assertEqual(repo.branches["b"].value, 5)
 
     def test_cherry_pick_and_revert_ref_and_range(self):
         repo, output = run_program(

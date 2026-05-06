@@ -254,6 +254,7 @@ def _graph_prefix(columns: list[Commit | object | None], commit_column: int, par
 
     cells = []
     for i in range(len(columns_to_print)):
+        between_columns = parent_column is not None and (parent_column < i < commit_column or commit_column < i < parent_column)
         if i == commit_column:
             if parent_column is None or parent_column < commit_column:
                 if is_new:
@@ -275,11 +276,11 @@ def _graph_prefix(columns: list[Commit | object | None], commit_column: int, par
             else:
                 cells.append("├─")
         elif columns_to_print[i] is not None:
-            if parent_column is not None and parent_column < i < commit_column:
+            if between_columns:
                 cells.append("┼─")
             else:
                 cells.append("│ ")
-        elif parent_column is not None and parent_column < i < commit_column:
+        elif between_columns:
             cells.append("──")
         else:
             cells.append("  ")
