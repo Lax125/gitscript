@@ -3,6 +3,7 @@ import shlex
 from dataclasses import dataclass
 from typing import Optional
 
+from gitscript import ansi
 from gitscript.commit_range import CommitRange, CommitSelector
 from gitscript.refs import Ref, resolve, HeadRef
 from gitscript.commands import commit, commit_string, branch, checkout, reset, show, log, tag, cherry_pick, \
@@ -110,9 +111,13 @@ class Branch(Statement):
 class ListBranches(Statement):
     def run(self, repo: Repo):
         for entry in repo.branch_listing():
-            protected = "!" if entry.protected else ""
-            binding = "".join(f" -> caller:{name}" for name in entry.binding_chain)
-            print(f" {'*' if entry.current else ' '} {entry.name}{protected}{binding}")
+            current = ansi.paint("*", ansi.DEBUG) if entry.current else " "
+            protected = ansi.paint("!", ansi.PROTECTED) if entry.protected else ""
+            binding = "".join(
+                ansi.paint(" -> caller:", ansi.BINDING) + ansi.paint(name, ansi.BRANCH)
+                for name in entry.binding_chain
+            )
+            print(f" {current} {ansi.paint(entry.name, ansi.BRANCH)}{protected}{binding}")
 
 
 class DeleteBranches(Statement):
@@ -537,7 +542,12 @@ def _label_text(label: Optional[str]) -> str:
 def _log_merge_begin(repo: Repo, label: Optional[str], condition: Condition) -> None:
     if repo.merge_verbosity < 1:
         return
-    print(f"[merge] begin label={_label_text(label)} condition={condition.value}", file=sys.stderr)
+    print(
+        f"{ansi.paint('[merge]', ansi.MERGE)} {ansi.paint('begin', ansi.DEBUG)} "
+        f"{ansi.paint('label=', ansi.BINDING)}{ansi.paint(_label_text(label), ansi.PARAM)} "
+        f"{ansi.paint('condition=', ansi.BINDING)}{ansi.paint(condition.value, ansi.MERGE)}",
+        file=sys.stderr,
+    )
 
 
 def _log_merge_check(
@@ -551,8 +561,12 @@ def _log_merge_check(
     if repo.merge_verbosity < 1:
         return
     print(
-        f"[merge] check label={_label_text(label)} condition={condition.value} "
-        f"left={value_a} right={value_b} selected={selected}",
+        f"{ansi.paint('[merge]', ansi.MERGE)} {ansi.paint('check', ansi.DEBUG)} "
+        f"{ansi.paint('label=', ansi.BINDING)}{ansi.paint(_label_text(label), ansi.PARAM)} "
+        f"{ansi.paint('condition=', ansi.BINDING)}{ansi.paint(condition.value, ansi.MERGE)} "
+        f"{ansi.paint('left=', ansi.BINDING)}{ansi.paint(value_a, ansi.VALUE)} "
+        f"{ansi.paint('right=', ansi.BINDING)}{ansi.paint(value_b, ansi.VALUE)} "
+        f"{ansi.paint('selected=', ansi.BINDING)}{ansi.paint(selected, ansi.DEBUG)}",
         file=sys.stderr,
     )
 
@@ -561,7 +575,9 @@ def _log_merge_signal(repo: Repo, signal: str, target: Optional[str], handled_by
     if repo.merge_verbosity < 2:
         return
     print(
-        f"[merge] {signal} target={_label_text(target)} handled_by={_label_text(handled_by)}",
+        f"{ansi.paint('[merge]', ansi.MERGE)} {ansi.paint(signal, ansi.DEBUG)} "
+        f"{ansi.paint('target=', ansi.BINDING)}{ansi.paint(_label_text(target), ansi.PARAM)} "
+        f"{ansi.paint('handled_by=', ansi.BINDING)}{ansi.paint(_label_text(handled_by), ansi.PARAM)}",
         file=sys.stderr,
     )
 

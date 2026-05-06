@@ -3,6 +3,8 @@ import io
 import unittest
 from unittest.mock import patch
 
+from gitscript import ansi
+from gitscript.ansi import strip as strip_ansi
 from gitscript.commit_range import CommitRange
 from gitscript.refs import BranchRef, ConstantOffsetRef, HeadRef
 from gitscript.operators import Condition, Operator
@@ -35,6 +37,13 @@ from gitscript.statements import (
 
 
 def capture_output(statement, repo: Repo) -> str:
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output):
+        statement.run(repo)
+    return strip_ansi(output.getvalue())
+
+
+def capture_raw_output(statement, repo: Repo) -> str:
     output = io.StringIO()
     with contextlib.redirect_stdout(output):
         statement.run(repo)
@@ -306,6 +315,11 @@ class StatementTests(unittest.TestCase):
 
         self.assertEqual(output, "   main!\n * earlier\n   feature\n")
 
+        raw_output = capture_raw_output(ListBranches(), repo)
+        self.assertIn(ansi.BRANCH + "main" + ansi.RESET, raw_output)
+        self.assertIn(ansi.DEBUG + "*" + ansi.RESET, raw_output)
+        self.assertIn(ansi.PROTECTED + "!" + ansi.RESET, raw_output)
+
     def test_delete_tags_removes_named_tags(self):
         repo = Repo()
         Tag("old").run(repo)
@@ -338,6 +352,11 @@ class StatementTests(unittest.TestCase):
             "   alpha 2 value=10 char='\\n'\n"
             "   zeta 1 value=65 char='A'\n",
         )
+
+        raw_output = capture_raw_output(ListTags(), repo)
+        self.assertIn(ansi.TAG + "alpha" + ansi.RESET, raw_output)
+        self.assertIn(ansi.COMMIT + "2" + ansi.RESET, raw_output)
+        self.assertIn(ansi.VALUE + "10" + ansi.RESET, raw_output)
 
     def test_conflict_runs_first_block_when_condition_matches(self):
         repo = Repo()

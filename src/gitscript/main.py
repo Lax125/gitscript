@@ -2,15 +2,11 @@ import argparse
 import sys
 from collections.abc import Sequence
 
+from gitscript import ansi
 from gitscript.parser import IncompleteInput, ParseError, parse, parse_repl
 from gitscript.preprocessor import PreprocessError, preprocess_file, preprocess_source
 from gitscript.repo import Repo
 from gitscript.statements import ExitSignal
-
-
-BOLD = "\033[1m"
-LIGHT_RED = "\033[1;31m"
-END = "\033[0m"
 
 
 def run_statements(
@@ -45,7 +41,7 @@ def repl() -> None:
 
     while True:
         try:
-            line = input(BOLD + LIGHT_RED + ("... " if buffer else f"gitscript ({repo.HEAD}) > ") + END)
+            line = input(_prompt(repo, bool(buffer)))
         except EOFError:
             print(flush=True)
             return
@@ -62,7 +58,7 @@ def repl() -> None:
         except IncompleteInput:
             continue
         except (ParseError, PreprocessError) as exc:
-            print(exc, file=sys.stderr, flush=True)
+            print(_format_error(exc), file=sys.stderr, flush=True)
             buffer.clear()
             continue
 
@@ -72,7 +68,7 @@ def repl() -> None:
         except ExitSignal:
             return
         except Exception as exc:
-            print(exc, file=sys.stderr, flush=True)
+            print(_format_error(exc), file=sys.stderr, flush=True)
 
         buffer.clear()
 
@@ -89,10 +85,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         run_file(args.filename)
     except (OSError, ParseError, PreprocessError, RuntimeError, ValueError) as exc:
-        print(exc, file=sys.stderr, flush=True)
+        print(_format_error(exc), file=sys.stderr, flush=True)
         return 1
 
     return 0
+
+
+def _prompt(repo: Repo, continuation: bool) -> str:
+    if continuation:
+        return ansi.paint("... ", ansi.DEBUG)
+    return (
+        ansi.paint("gitscript", ansi.DEBUG)
+        + ansi.paint(" (", ansi.DEBUG)
+        + ansi.paint(repo.HEAD, ansi.BRANCH)
+        + ansi.paint(") > ", ansi.DEBUG)
+    )
+
+
+def _format_error(exc: Exception) -> str:
+    return ansi.paint(exc, ansi.DEBUG)
 
 
 if __name__ == "__main__":

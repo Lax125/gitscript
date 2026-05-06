@@ -2,6 +2,7 @@ import contextlib
 import io
 from unittest.mock import patch
 
+from gitscript.ansi import strip as strip_ansi
 from gitscript.parser import parse
 from gitscript.repo import Repo
 from gitscript.statements import ExitSignal
@@ -27,4 +28,4 @@ def run_program_with_debug(source: str, inputs: list[str] | None = None) -> tupl
                 except ExitSignal:
                     pass
 
-    return repo, output.getvalue(), debug.getvalue()
+    return repo, strip_ansi(output.getvalue()), strip_ansi(debug.getvalue())
