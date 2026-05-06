@@ -12,6 +12,9 @@ from gitscript.commands import commit, commit_string, branch, checkout, reset, s
 from gitscript.operators import Condition, Operator
 from gitscript.repo import CommitBinding, Repo, RefBinding, protect_binding
 
+# noinspection PyUnusedImports
+import readline # Capture arrow keys on linux
+
 
 class Statement:
     def run(self, repo: Repo):
