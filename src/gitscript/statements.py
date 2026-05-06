@@ -1,5 +1,4 @@
 import sys
-import re
 import shlex
 from dataclasses import dataclass
 from typing import Optional
@@ -656,7 +655,7 @@ def _validate_parameter_value(repo: Repo, parameter: Parameter, value: str) -> s
     if parameter.kind == "-i":
         return str(_parse_integer_literal(value))
     if parameter.kind == "-s":
-        return value
+        return _quote_arg(value)
     if parameter.kind == "-l":
         _validate_name(value, "parameter")
         if repo.has(value):
@@ -714,13 +713,9 @@ def _validate_name(value: str, kind: str) -> None:
 
 
 def _substitute_parameters(source: str, frame: dict[str, str]) -> str:
-    def replace(match):
-        name = match.group(1)
-        if name not in frame:
-            raise RuntimeError(f"Unknown parameter: {name}")
-        return frame[name]
+    from gitscript.parser import _substitute_parameter_names
 
-    return re.sub(r"\$([A-Za-z0-9_/-]+)", replace, source)
+    return _substitute_parameter_names(source, frame)
 
 
 def _run_source(repo: Repo, source: str) -> None:

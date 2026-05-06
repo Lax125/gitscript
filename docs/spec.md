@@ -776,7 +776,7 @@ This validation catches some errors before the function is ever called. For exam
 
 ```gitscript
 git config alias.bad -p target '!
-  git branch -d $target
+  git branch -d target
 '
 ```
 
@@ -788,12 +788,14 @@ Function definitions can declare named parameters before the function body:
 
 ```gitscript
 git config alias.foo -i my_int -s my_string '!
-  git commit $my_int
-  git commit -m "$my_string"
+  git commit my_int
+  git commit -m my_string
 '
 ```
 
 Parameter names use the same syntax rules as branch and tag names.
+
+Parameters declared with `-l`, `-b`, `-p`, or `-t` cannot be named `main`.
 
 Function calls provide arguments positionally:
 
@@ -803,11 +805,11 @@ git foo 3 "hello"
 
 Each call creates one call-stack frame containing the parameter values, local branches, and local tags for that function invocation. Parameter references resolve against the current frame. When the function returns, that frame is removed.
 
-Parameters are referenced with `$<name>`:
+Parameters are referenced by name:
 
 ```gitscript
-$my_int
-$my_string
+my_int
+my_string
 ```
 
 A parameter reference can appear anywhere a value of that parameter's type is expected.
@@ -828,7 +830,7 @@ Example:
 
 ```gitscript
 git config alias.pick -c source -o strategy '!
-  git cherry-pick $source -s=$strategy
+  git cherry-pick source -s=strategy
 '
 
 git pick main max
@@ -885,21 +887,21 @@ To let a function use a branch or tag from its caller other than the caller's cu
 git branch branch1
 
 git config alias.example -b target '!
-  git checkout $target
+  git checkout target
 '
 
 git example branch1
 ```
 
-The `-b` parameter binds an existing unprotected branch from the caller's frame. Inside the function, `$target` refers to that bound caller branch, even if a local ref with the same literal name would otherwise be inaccessible.
+The `-b` parameter binds an existing unprotected branch from the caller's frame. Inside the function, `target` refers to that bound caller branch, even if a local ref with the same literal name would otherwise be inaccessible.
 
 `main` and the caller's current branch name cannot be passed to `-b` parameters, whether positionally or by named argument. The caller's current branch is already available inside the function as `main`.
 
-Use `-p` for branch parameters that are allowed to refer to protected branches. A `-p` parameter can refer to `main` or the caller's current branch, and function-local code can `checkout`, `commit`, and `reset` through that parameter. It cannot delete the branch through that parameter.
+Use `-p` for branch parameters that are allowed to refer to protected branches. A `-p` parameter can refer to `main` or the caller's current branch. Function-local code can `checkout`, `commit`, and `reset` through that parameter. It cannot delete the branch through that parameter.
 
 Use `-t` to bind an existing tag from the caller's frame.
 
-Use `-l` when a function needs a new label for a branch or tag it will create in the caller's frame. A `-l` argument is checked when the function is called and is valid only if it does not currently refer to any branch or tag in the caller's frame. Inside the function, creating `git branch $label` or `git tag $label` creates that ref in the caller's frame, not in the callee's temporary frame. This is similar in spirit to Python's `global`: the name is still introduced by the callee's code, but it belongs to the enclosing namespace.
+Use `-l` when a function needs a new label for a branch or tag it will create in the caller's frame. A `-l` argument is checked when the function is called and is valid only if it does not currently refer to any branch or tag in the caller's frame. Inside the function, creating `git branch label` or `git tag label` creates that ref in the caller's frame, not in the callee's temporary frame. This is similar in spirit to Python's `global`: the name is still introduced by the callee's code, but it belongs to the enclosing namespace.
 
 Commit parameters (`-c`) are evaluated in the caller's frame when the function is called, then bind that concrete commit inside the callee. The argument must be a `<commit-ref>`, not a `<commit-range>` or `<symdiff-range>`. This lets a caller pass `branch1~2` without exposing the caller's `branch1` name directly. The bound commit can be used anywhere a commit reference is expected, including as one side of a range selector, and `git log --graph` can annotate it as a parameter-bound commit.
 
@@ -917,8 +919,8 @@ Defaults are declared by assigning a literal value in the parameter declaration:
 
 ```gitscript
 git config alias.foo -i count=1 -s message="ok" '!
-  git commit $count
-  git commit -m "$message"
+  git commit count
+  git commit -m message
 '
 ```
 

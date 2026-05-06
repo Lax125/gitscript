@@ -722,6 +722,8 @@ def _parse_parameter(token: Token, kind: str, line_number: int) -> tuple[str, st
     parts = _lex_statement(name_text, line_number)
     cursor = _TokenCursor(parts, line_number)
     name = _parse_name_token(cursor.expect(TokenKind.IDENTIFIER, "function parameter"), "parameter")
+    if kind in {"-l", "-b", "-p", "-t"} and name == "main":
+        raise ParseError(f"Line {line_number}: {kind} parameter cannot be named main")
     cursor.expect_done("function parameter")
 
     if default is not None:
@@ -1122,10 +1124,6 @@ def _validate_function_parameter_uses(lines: list[_Line], parameter_kinds: dict[
         if not raw:
             continue
 
-        for name in _find_parameter_refs(raw):
-            if name not in parameter_kinds:
-                raise ParseError(f"Line {line.number}: Unknown parameter: {name}")
-
         try:
             tokens = _lex_statement(raw, line.number)
         except ParseError:
@@ -1308,7 +1306,7 @@ def _require_parameter_kinds(
         line_number: int,
         context: str,
 ) -> None:
-    for name in _find_parameter_refs(text):
+    for name in _find_parameter_refs(text, parameter_kinds):
         actual = parameter_kinds[name]
         if actual not in expected:
             expected_text = ", ".join(sorted(expected))
@@ -1331,14 +1329,73 @@ def _substitute_function_parameter_placeholders(body: str, parameter_kinds: dict
         "-o": "add",
     }
 
-    def replace(match):
-        return placeholders[parameter_kinds[match.group(1)]]
+    replacements = {
+        name: placeholders[kind]
+        for name, kind in parameter_kinds.items()
+    }
+    return _substitute_parameter_names(body, replacements)
 
-    return re.sub(r"\$([A-Za-z0-9_/-]+)", replace, body)
+
+def _find_parameter_refs(text: str, parameter_kinds: dict[str, str]) -> list[str]:
+    names = set(parameter_kinds)
+    refs: list[str] = []
+    for token in _lex_statement(text, 0):
+        if token.kind == TokenKind.IDENTIFIER and token.value in names:
+            refs.append(token.value)
+    return refs
 
 
-def _find_parameter_refs(text: str) -> list[str]:
-    return re.findall(r"\$([A-Za-z0-9_/-]+)", text)
+def _substitute_parameter_names(source: str, replacements: dict[str, str]) -> str:
+    result: list[str] = []
+    i = 0
+    while i < len(source):
+        if source.startswith('"""', i):
+            end = source.find('"""', i + 3)
+            if end == -1:
+                result.append(source[i:])
+                break
+            result.append(source[i:end + 3])
+            i = end + 3
+            continue
+        if source.startswith("'!", i):
+            result.append("'!")
+            i += 2
+            continue
+        if source[i] == "#":
+            end = i
+            while end < len(source) and source[end] not in "\r\n":
+                end += 1
+            result.append(source[i:end])
+            i = end
+            continue
+        if source[i] in {"'", '"'}:
+            quote = source[i]
+            end = i + 1
+            escaped = False
+            while end < len(source):
+                char = source[end]
+                if quote == '"' and escaped:
+                    escaped = False
+                elif quote == '"' and char == "\\":
+                    escaped = True
+                elif char == quote:
+                    end += 1
+                    break
+                end += 1
+            result.append(source[i:end])
+            i = end
+            continue
+        if source[i] in _NAME_CHARS:
+            end = i + 1
+            while end < len(source) and source[end] in _NAME_CHARS:
+                end += 1
+            name = source[i:end]
+            result.append(replacements.get(name, name))
+            i = end
+            continue
+        result.append(source[i])
+        i += 1
+    return "".join(result)
 
 
 def _tokenize_ref(text: str, line_number: int) -> list[Token]:

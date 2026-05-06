@@ -421,7 +421,7 @@ git log HEAD~19..HEAD
             git branch source
             git commit 66
             git config alias.inspect -c selected '!
-                git log --graph $selected HEAD
+                git log --graph selected HEAD
             '
             git inspect source
             """
@@ -988,12 +988,17 @@ git log root..HEAD
         invalid_sources = [
             ("git config alias.bad '!wat'\n", "must start with git"),
             ("git config alias.bad '!git cherry-pick main -s nope'\n", "Unknown strategy"),
+            ("git config alias.bad -b target '!git checkout $target'\n", "expects identifier"),
+            ("git config alias.bad -b main '!git checkout main'\n", "cannot be named main"),
+            ("git config alias.bad -p main '!git checkout main'\n", "cannot be named main"),
+            ("git config alias.bad -t main '!git show main'\n", "cannot be named main"),
+            ("git config alias.bad -l main '!git branch main'\n", "cannot be named main"),
             (
-                "git config alias.bad -s branch_name '!git checkout $branch_name'\n",
+                "git config alias.bad -s branch_name '!git checkout branch_name'\n",
                 "branch name expects",
             ),
             (
-                "git config alias.bad -p target '!git branch -d $target'\n",
+                "git config alias.bad -p target '!git branch -d target'\n",
                 "branch deletion expects",
             ),
         ]
@@ -1012,14 +1017,14 @@ git log root..HEAD
             git checkout -b out root
             git config alias.use -i amount -s text -c source -c root_ref -m condition -o strategy '!
                 git checkout main
-                git cherry-pick $source -s=$strategy
-                git merge -s $condition
+                git cherry-pick source -s=strategy
+                git merge -s condition
                 <<<<<<< main
-                    git commit $amount
-                    git commit -m "$text"
+                    git commit amount
+                    git commit -m text
                 =======
                     git commit 0
-                >>>>>>> $root_ref
+                >>>>>>> root_ref
             '
             git use 7 "A" ten root gt max
             git rev-list --reverse root..out
@@ -1034,7 +1039,7 @@ git log root..HEAD
             run_program(
                 """
                 git config alias.use -c source '!
-                    git show $source
+                    git show source
                 '
                 git use HEAD~1..HEAD
                 """
@@ -1044,7 +1049,7 @@ git log root..HEAD
         repo, output = run_program(
             """
             git config alias.make -i amount=1 '!
-                git commit $amount
+                git commit amount
                 exit
                 git commit 99
             '
@@ -1123,7 +1128,7 @@ git log root..HEAD
             git branch other
             git reset HEAD~1
             git config alias.peek -b target '!
-                git show $target
+                git show target
             '
             git peek other
             """
@@ -1135,7 +1140,7 @@ git log root..HEAD
             run_program(
                 """
                 git config alias.peek -b target '!
-                    git show $target
+                    git show target
                 '
                 git peek main
                 """
@@ -1146,7 +1151,7 @@ git log root..HEAD
                 """
                 git checkout -b work
                 git config alias.peek -b target '!
-                    git show $target
+                    git show target
                 '
                 git peek work
                 """
@@ -1156,7 +1161,7 @@ git log root..HEAD
             run_program(
                 """
                 git config alias.peek -b target '!
-                    git show $target
+                    git show target
                 '
                 git peek missing
                 """
@@ -1167,11 +1172,11 @@ git log root..HEAD
             """
             git commit 4
             git config alias.make_refs -l branch_name -l tag_name '!
-                git branch $branch_name
-                git checkout $branch_name
+                git branch branch_name
+                git checkout branch_name
                 git commit 9
-                git tag $tag_name
-                git show $tag_name
+                git tag tag_name
+                git show tag_name
             '
             git make_refs temp mark
             git show main
@@ -1188,7 +1193,7 @@ git log root..HEAD
                 """
                 git branch taken
                 git config alias.make -l name '!
-                    git branch $name
+                    git branch name
                 '
                 git make taken
                 """
@@ -1198,8 +1203,8 @@ git log root..HEAD
         repo, output = run_program(
             """
             git config alias.inner -l label '!
-                git branch $label
-                git checkout $label
+                git branch label
+                git checkout label
                 git commit 3
             '
             git config alias.outer '!
@@ -1214,13 +1219,13 @@ git log root..HEAD
         self.assertEqual(output, "3\n")
         self.assertNotIn("made", repo.branches)
 
-    def test_protected_branch_parameters_can_target_main_and_current_but_not_be_deleted(self):
+    def test_protected_branch_parameters_can_target_current_and_main_but_not_be_deleted(self):
         repo, output = run_program(
             """
             git checkout -b work
             git commit 1
             git config alias.bump -p target '!
-                git checkout $target
+                git checkout target
                 git commit 2
             '
             git bump work
@@ -1240,7 +1245,7 @@ git log root..HEAD
                 """
                 git checkout -b work
                 git config alias.bad -p target '!
-                    git branch -d $target
+                    git branch -d target
                 '
                 git bad work
                 """
@@ -1250,11 +1255,30 @@ git log root..HEAD
             run_program(
                 """
                 git config alias.bump -p target '!
-                    git checkout $target
+                    git checkout target
                 '
                 git bump missing
                 """
             )
+
+    def test_ref_like_parameters_apply_existing_type_rules_to_main_argument(self):
+        cases = [
+            ("-l", "label", "git branch label", "already refers"),
+            ("-b", "target", "git checkout target", "protected branch"),
+            ("-t", "mark", "git show mark", "tag main does not exist"),
+        ]
+
+        for kind, name, body, message in cases:
+            with self.subTest(kind=kind):
+                with self.assertRaisesRegex(RuntimeError, message):
+                    run_program(
+                        f"""
+                        git config alias.bad {kind} {name} '!
+                            {body}
+                        '
+                        git bad main
+                        """
+                    )
 
     def test_tag_parameters_require_existing_tags(self):
         repo, output = run_program(
@@ -1263,7 +1287,7 @@ git log root..HEAD
             git tag saved
             git commit 9
             git config alias.peek -t mark '!
-                git show $mark
+                git show mark
             '
             git peek saved
             """
@@ -1277,7 +1301,7 @@ git log root..HEAD
                 """
                 git branch saved
                 git config alias.peek -t mark '!
-                    git show $mark
+                    git show mark
                 '
                 git peek saved
                 """
@@ -1290,11 +1314,11 @@ git log root..HEAD
             git branch result
             git config alias.inspect -b output -p owner -l potential '!
                 git branch scratch
-                git branch $potential
+                git branch potential
                 git checkout scratch
                 git branch
             '
-            git inspect result main create_this
+            git inspect result feature create_this
             """
         )
 
@@ -1302,7 +1326,7 @@ git log root..HEAD
         self.assertEqual(
             output,
             "   main! -> caller:feature\n"
-            "   owner! -> caller:main\n"
+            "   owner! -> caller:feature\n"
             "   output -> caller:result\n"
             "   potential -> caller:create_this\n"
             " * scratch\n"
@@ -1316,7 +1340,7 @@ git log root..HEAD
                 git branch
             '
             git config alias.outer -b output '!
-                git inner $output
+                git inner output
             '
             git outer result
             """
@@ -1337,7 +1361,7 @@ git log root..HEAD
             git tag alpha
             git config alias.inspect -t selected -l newtag '!
                 git tag local
-                git tag $newtag
+                git tag newtag
                 git tag
             '
             git inspect zeta beta

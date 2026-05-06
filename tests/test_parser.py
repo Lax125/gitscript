@@ -218,7 +218,7 @@ class ParserTests(unittest.TestCase):
             git commit true && git commit false
             git config alias.cp 'cherry-pick'
             git config alias.pick -l label -b target -p owner -t mark -c source -o strategy '!
-                git cherry-pick $source -s=$strategy && exit
+                git cherry-pick source -s=strategy && exit
             '
             git later new-label other main saved main max
             exit

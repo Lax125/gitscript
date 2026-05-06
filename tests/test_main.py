@@ -74,7 +74,7 @@ class MainTests(unittest.TestCase):
                     "git commit 99\n"
                     "git config alias.bump 'commit 1'\n"
                     "git config alias.bump 'commit 2'\n"
-                    "git config alias.say -s text '!git commit -m \"$text\"'\n"
+                    "git config alias.say -s text '!git commit -m text'\n"
                 )
 
             library_arg = library.replace("\\", "/")

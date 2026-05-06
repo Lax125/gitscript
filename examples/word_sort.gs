@@ -27,76 +27,76 @@ git commit -m "Word (empty to sort): "
 
 # Given a word position, compute the start and end depths for that word.
 git config alias.bounds -c position -b start_depth -b end_depth -c word_count_ref -c fences_ref -c one_ref '!
-    git branch index $word_count_ref
+    git branch index word_count_ref
     git checkout index
-    git cherry-pick $position -s=sub
+    git cherry-pick position -s=sub
 
-    git checkout $start_depth
-    git reset $fences_ref~index
+    git checkout start_depth
+    git reset fences_ref~index
 
     git checkout index
-    git cherry-pick $one_ref -s=sub
+    git cherry-pick one_ref -s=sub
 
-    git checkout $end_depth
-    git reset $fences_ref~index
-    git cherry-pick $one_ref -s=sub
+    git checkout end_depth
+    git reset fences_ref~index
+    git cherry-pick one_ref -s=sub
 '
 
 # Compare two words lexicographically. comparison_ref is 1 if left sorts
 # before right, otherwise it is reset to root.
 git config alias.compare_words -c left_pos -c right_pos -b comparison_ref -c root_ref -c words_ref -c word_count_ref -c fences_ref -c one_ref '!
-    git branch left_start $root_ref
-    git branch left_end $root_ref
-    git branch right_start $root_ref
-    git branch right_end $root_ref
-    git branch left_cursor $root_ref
-    git branch right_cursor $root_ref
+    git branch left_start root_ref
+    git branch left_end root_ref
+    git branch right_start root_ref
+    git branch right_end root_ref
+    git branch left_cursor root_ref
+    git branch right_cursor root_ref
 
-    git bounds $left_pos left_start left_end $word_count_ref $fences_ref $one_ref
-    git bounds $right_pos right_start right_end $word_count_ref $fences_ref $one_ref
+    git bounds left_pos left_start left_end word_count_ref fences_ref one_ref
+    git bounds right_pos right_start right_end word_count_ref fences_ref one_ref
 
     git checkout left_cursor
     git reset left_start
     git checkout right_cursor
     git reset right_start
-    git checkout $comparison_ref
-    git reset $root_ref
+    git checkout comparison_ref
+    git reset root_ref
 
     git merge -s is compare
-    <<<<<<< $words_ref~left_cursor
-        git checkout $comparison_ref
-        git reset $root_ref
+    <<<<<<< words_ref~left_cursor
+        git checkout comparison_ref
+        git reset root_ref
         git commit 1
         git merge --abort compare
     =======
         git merge -s is
-        <<<<<<< $words_ref~right_cursor
-            git checkout $comparison_ref
-            git reset $root_ref
+        <<<<<<< words_ref~right_cursor
+            git checkout comparison_ref
+            git reset root_ref
             git merge --abort compare
         =======
             git merge -s lt
-            <<<<<<< $words_ref~left_cursor
-                git checkout $comparison_ref
-                git reset $root_ref
+            <<<<<<< words_ref~left_cursor
+                git checkout comparison_ref
+                git reset root_ref
                 git commit 1
                 git merge --abort compare
             =======
                 git merge -s gt
-                <<<<<<< $words_ref~left_cursor
-                    git checkout $comparison_ref
-                    git reset $root_ref
+                <<<<<<< words_ref~left_cursor
+                    git checkout comparison_ref
+                    git reset root_ref
                     git merge --abort compare
                 =======
                     git checkout left_cursor
-                    git cherry-pick $one_ref -s=add
+                    git cherry-pick one_ref -s=add
                     git checkout right_cursor
-                    git cherry-pick $one_ref -s=add
+                    git cherry-pick one_ref -s=add
                     git merge --continue compare
-                >>>>>>> $words_ref~right_cursor
-            >>>>>>> $words_ref~right_cursor
-        >>>>>>> $words_ref~right_end
-    >>>>>>> $words_ref~left_end
+                >>>>>>> words_ref~right_cursor
+            >>>>>>> words_ref~right_cursor
+        >>>>>>> words_ref~right_end
+    >>>>>>> words_ref~left_end
 '
 
 # Read words one at a time; an empty line ends input.
