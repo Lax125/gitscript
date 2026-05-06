@@ -3,13 +3,22 @@ import sys
 from collections.abc import Sequence
 
 from gitscript.parser import IncompleteInput, ParseError, parse, parse_repl
+from gitscript.preprocessor import PreprocessError, preprocess_file, preprocess_source
 from gitscript.repo import Repo
 from gitscript.statements import ExitSignal
 
 
-def run_statements(source: str, repo: Repo | None = None) -> Repo:
+def run_statements(
+        source: str,
+        repo: Repo | None = None,
+        base_dir: str | None = None,
+        preprocess: bool = True,
+) -> Repo:
     if repo is None:
         repo: Repo = Repo()
+
+    if preprocess:
+        source = preprocess_source(source, base_dir)
 
     try:
         for statement in parse(source):
@@ -21,8 +30,8 @@ def run_statements(source: str, repo: Repo | None = None) -> Repo:
 
 
 def run_file(filename: str) -> Repo:
-    with open(filename, encoding="utf-8") as file:
-        return run_statements(file.read())
+    source, base_dir = preprocess_file(filename)
+    return run_statements(source, base_dir=str(base_dir), preprocess=False)
 
 
 def repl() -> None:
@@ -44,10 +53,10 @@ def repl() -> None:
 
         buffer.append(line)
         try:
-            statements = parse_repl(buffer)
+            statements = parse_repl(preprocess_source("\n".join(buffer)).splitlines())
         except IncompleteInput:
             continue
-        except ParseError as exc:
+        except (ParseError, PreprocessError) as exc:
             print(exc, file=sys.stderr, flush=True)
             buffer.clear()
             continue
@@ -74,7 +83,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         run_file(args.filename)
-    except (OSError, ParseError, RuntimeError, ValueError) as exc:
+    except (OSError, ParseError, PreprocessError, RuntimeError, ValueError) as exc:
         print(exc, file=sys.stderr, flush=True)
         return 1
 

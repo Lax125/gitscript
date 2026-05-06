@@ -109,6 +109,49 @@ Integer literals are decimal integers.
 
 ## Commands
 
+### `git init`
+
+```gitscript
+git init
+```
+
+Resets the repository to the initial clean state. This removes all branches, tags, commits other than the root commit, aliases, function definitions, and debug configuration.
+
+`git init` is valid only at global scope.
+
+---
+
+### `git clone`
+
+```gitscript
+git clone <file-path>
+```
+
+Preprocesses another GitScript file into the current source position. The copied file is prepended with `git init`, so executing the cloned file starts from a clean repository.
+
+`git clone` is valid only at global scope. Because it is a preprocessor directive, in REPL mode it behaves as though the user typed `git init` followed by the contents of the target file.
+
+GitScript tracks files being expanded and reports an error if cloning would create an infinite cycle, including a cycle back to the initial file being run.
+
+---
+
+### `git pull`
+
+```gitscript
+git pull <file-path> [<alias-name>]...
+git pull <file-path> [<local-alias>:<source-alias>]...
+```
+
+Parses another GitScript file and imports alias or function definitions from it. Non-alias-defining statements in the pulled file are not executed.
+
+`git pull` is only valid in global scope.
+
+If an alias or function is defined multiple times in the pulled file, the last definition wins.
+
+If no aliases are named, all aliases and functions defined in the pulled file are imported. If aliases are named, each requested source alias must exist or `git pull` raises an error.
+
+`<local-alias>:<source-alias>` imports the source alias under a different local name.
+
 ### `git branch`
 
 ```gitscript
@@ -620,6 +663,8 @@ Arguments after the shortform are appended to the substituted command.
 
 Expanding a shortform must produce exactly one composed statement. It can use anonymous blocks, `&&`, and `||` if the whole expansion is still one statement expression. It cannot expand to multiple newline-separated statements.
 
+A shortform expansion cannot define an alias or function.
+
 For example, this definition is accepted:
 
 ```gitscript
@@ -667,7 +712,7 @@ git cherry-pick main -s=max
 
 Alias substitution can happen multiple times. If the replacement fragment begins with another shortform or function name, that name is expanded too. The final expanded result must still be one statement.
 
-No validation is performed when the shortform is defined. The fragment does not need to form a valid statement at definition time. It can still expand to a statement that defines another shortform or function, to a statement that commits a multiline string, or to a composed statement using `&&` and `||`.
+No validation is performed when the shortform is defined. The fragment does not need to form a valid statement at definition time. It can still expand to a statement that commits a multiline string or to a composed statement using `&&` and `||`.
 
 Alias expansion happens while parsing the command being executed, using aliases that have already been executed. Aliases defined later in the program are not visible earlier in the program.
 
@@ -701,6 +746,8 @@ git config alias.dec '!git cherry-pick one -s=sub && git show'
 #### Function Body Validation
 
 Function bodies are syntax-checked when the function is defined.
+
+Function bodies cannot define aliases or functions.
 
 Each statement in a function body must:
 

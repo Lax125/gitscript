@@ -1,4 +1,5 @@
 import unittest
+from textwrap import dedent
 
 from gitscript.parser import ParseError, parse
 from utils import run_program, run_program_with_debug
@@ -116,6 +117,36 @@ git log HEAD~19..HEAD
         self.assertIn("temp", repo.branches)
         self.assertEqual(repo.tags["saved"].value, 2)
         self.assertEqual(repo.tags["old"].value, 1)
+
+    def test_init_resets_global_repo_state_config_and_aliases(self):
+        repo, output = run_program(
+            """
+            git config commit.verbose 1
+            git config alias.c 'commit'
+            git commit 5
+            git branch old
+            git tag saved
+            git init
+            git show
+            git branch
+            """
+        )
+
+        self.assertEqual(output, "0\n * main!\n")
+        self.assertEqual(repo.branches["main"].value, 0)
+        self.assertEqual(repo.tags, {})
+        self.assertEqual(repo.aliases, {})
+        self.assertFalse(repo.commit_verbose)
+
+        with self.assertRaisesRegex(RuntimeError, "global scope"):
+            run_program(
+                """
+                git config alias.do-init '!
+                    git init
+                '
+                git do-init
+                """
+            )
 
     def test_branch_without_arguments_lists_global_branches(self):
         repo, output = run_program(
@@ -330,9 +361,11 @@ git log HEAD~19..HEAD
 
         self.assertEqual(
             output,
-            "* 2 value=10 char='\\n' [HEAD -> main!, branch:mark]\n"
-            "* 1 value=65 char='A' [tag:letter]\n"
-            "* 0 value=0 char='\\0' [tag:root]\n",
+            dedent(r"""
+                ╤ 2 value=10 char='\n' [HEAD -> main!, branch:mark]
+                ╪ 1 value=65 char='A' [tag:letter]
+                ╧ 0 value=0 char='\x00' [tag:root]
+            """).lstrip(),
         )
         self.assertEqual(repo.branches["main"].value, 10)
 
@@ -351,14 +384,16 @@ git log HEAD~19..HEAD
 
         self.assertEqual(
             output,
-            "* 3 value=3 char='\\x03' [HEAD -> left]\n"
-            "┣━* 2 value=2 char='\\x02' [branch:main!, branch:right]\n"
-            "* 1 value=1 char='\\x01' [branch:base]\n"
-            "* 0 value=0 char='\\0'\n",
+            dedent(r"""
+                ╤ 3 value=3 char='\x03' [HEAD -> left]
+                ├─═ 2 value=2 char='\x02' [branch:main!, branch:right]
+                ╪ 1 value=1 char='\x01' [branch:base]
+                ╧ 0 value=0 char='\x00'
+            """).lstrip()
         )
         self.assertEqual(repo.branches["left"].value, 3)
 
-    def test_git_log_graph_uses_separate_columns_for_unrelated_histories(self):
+    def test_git_log_graph_can_use_same_column_for_unrelated_histories(self):
         repo, output = run_program(
             """
             git tag original
@@ -372,8 +407,10 @@ git log HEAD~19..HEAD
 
         self.assertEqual(
             output,
-            "* 2 value=2 char='\\x02' [HEAD -> two]\n"
-            "  * 1 value=1 char='\\x01' [branch:main!, branch:one]\n",
+            dedent(r"""
+            ═ 2 value=2 char='\x02' [HEAD -> two]
+            ═ 1 value=1 char='\x01' [branch:main!, branch:one]
+            """).lstrip()
         )
         self.assertEqual(repo.branches["two"].value, 2)
 
@@ -392,9 +429,11 @@ git log HEAD~19..HEAD
 
         self.assertEqual(
             output,
-            "* 2 value=66 char='B' [HEAD -> main!]\n"
-            "* 1 value=65 char='A' [param:selected]\n"
-            "* 0 value=0 char='\\0'\n",
+            dedent(r"""
+                ╤ 2 value=66 char='B' [HEAD -> main!]
+                ╪ 1 value=65 char='A' [param:selected]
+                ╧ 0 value=0 char='\x00'
+            """).lstrip()
         )
         self.assertEqual(repo.branches["main"].value, 66)
 
@@ -416,16 +455,18 @@ git log HEAD~19..HEAD
 
         self.assertEqual(
             output,
-            "* 5 value=5 char='\\x05' [HEAD -> b]\n"
-            "┃ * 4 value=4 char='\\x04' [branch:main!]\n"
-            "┃ ┃ * 3 value=3 char='\\x03' [branch:a]\n"
-            "┣━┿━* 2 value=2 char='\\x02'\n"
-            "┣━* 1 value=1 char='\\x01'\n"
-            "* 0 value=0 char='\\0' [tag:root]\n",
+            dedent(r"""
+                ╤ 5 value=5 char='\x05' [HEAD -> b]
+                │ ╤ 4 value=4 char='\x04' [branch:main!]
+                │ │ ╤ 3 value=3 char='\x03' [branch:a]
+                ├─┼─╧ 2 value=2 char='\x02'
+                ├─╧ 1 value=1 char='\x01'
+                ╧ 0 value=0 char='\x00' [tag:root]
+            """).lstrip()
         )
         self.assertEqual(repo.branches["b"].value, 5)
 
-    def test_git_log_graph_reuses_ended_columns_after_one_row(self):
+    def test_git_log_graph_reuses_ended_columns_immediately(self):
         repo, output = run_program(
             """
             git tag root
@@ -442,11 +483,13 @@ git log HEAD~19..HEAD
 
         self.assertEqual(
             output,
-            "* 4 value=4 char='\\x04' [HEAD -> c]\n"
-            "┣━* 3 value=3 char='\\x03' [branch:b]\n"
-            "┣━━━* 2 value=2 char='\\x02' [branch:a]\n"
-            "┣━* 1 value=1 char='\\x01' [branch:main!]\n"
-            "* 0 value=0 char='\\0' [tag:root]\n",
+            dedent(r"""
+                ╤ 4 value=4 char='\x04' [HEAD -> c]
+                ├─═ 3 value=3 char='\x03' [branch:b]
+                ├─═ 2 value=2 char='\x02' [branch:a]
+                ├─═ 1 value=1 char='\x01' [branch:main!]
+                ╧ 0 value=0 char='\x00' [tag:root]
+            """).lstrip()
         )
         self.assertEqual(repo.branches["c"].value, 4)
 
@@ -466,10 +509,12 @@ git log HEAD~19..HEAD
 
         self.assertEqual(
             output,
-            "* 3 value=3 char='\\x03' [HEAD -> left]\n"
-            "  * 2 value=2 char='\\x02' [branch:main!, branch:right]\n"
-            "* 3 value=3 char='\\x03' [HEAD -> left]\n"
-            "  * 2 value=2 char='\\x02' [branch:main!, branch:right]\n",
+            dedent(r"""
+                ═ 3 value=3 char='\x03' [HEAD -> left]
+                ═ 2 value=2 char='\x02' [branch:main!, branch:right]
+                ═ 3 value=3 char='\x03' [HEAD -> left]
+                ═ 2 value=2 char='\x02' [branch:main!, branch:right]
+            """).lstrip()
         )
         self.assertEqual(repo.branches["left"].value, 3)
 
@@ -489,11 +534,38 @@ git log HEAD~19..HEAD
 
         self.assertEqual(
             output,
-            "* 2 value=2 char='\\x02' [HEAD -> main!]\n"
-            "┣━* 1 value=1 char='\\x01' [param:source]\n"
-            "* 0 value=0 char='\\0'\n",
+            dedent(r"""
+                ╤ 2 value=2 char='\x02' [HEAD -> main!]
+                ├─═ 1 value=1 char='\x01' [param:source]
+                ╧ 0 value=0 char='\x00'
+            """).lstrip(),
         )
         self.assertEqual(repo.branches["main"].value, 2)
+
+    def test_git_log_graph_all_handles_leftwards_branching(self):
+        repo, output = run_program(
+            """
+            git tag root
+            git commit 1
+            git checkout -b other root
+            git commit 2
+            git checkout main
+            git commit 3
+            git log --graph --all
+            """
+        )
+
+        self.assertEqual(
+            output,
+            dedent(r"""
+                ╤ 3 value=3 char='\x03' [HEAD -> main!]
+                │ ╤ 2 value=2 char='\x02' [branch:other]
+                ╧─┤ 1 value=1 char='\x01'
+                  ╧ 0 value=0 char='\x00' [tag:root]
+            """).lstrip(),
+        )
+        self.assertEqual(repo.branches["main"].value, 3)
+        self.assertEqual(repo.branches["other"].value, 2)
 
     def test_cherry_pick_and_revert_ref_and_range(self):
         repo, output = run_program(
@@ -871,24 +943,39 @@ git log HEAD~19..HEAD
         self.assertEqual(output, "20\n")
         self.assertEqual(repo.branches["main"].value, 20)
 
-    def test_shortform_expansion_can_define_alias_function_and_multiline_string(self):
+    def test_shortform_expansion_can_commit_multiline_string(self):
         repo, output = run_program(
             '''\
-git config alias.make-short "config alias.c 'commit'"
-git make-short
-git c 12
-git config alias.make-function "config alias.bump '!git commit 3'"
-git make-function
-git bump
+git tag root
 git config alias.say 'commit -m'
 git say """A
 B"""
-git log HEAD~3..HEAD
+git log root..HEAD
 '''
         )
 
         self.assertEqual(output, "A\nB\n")
         self.assertEqual(repo.branches["main"].value, ord("A"))
+
+    def test_shortform_expansion_cannot_define_alias(self):
+        with self.assertRaisesRegex(RuntimeError, "cannot expand to an alias definition"):
+            run_program(
+                """
+                git config alias.make-short "config alias.c 'commit'"
+                git make-short
+                """
+            )
+
+    def test_function_body_cannot_define_alias(self):
+        with self.assertRaisesRegex(ParseError, "cannot define aliases"):
+            run_program('git config alias.bad \'!git config alias.c "commit"\'\n')
+
+        with self.assertRaisesRegex(ParseError, "cannot define aliases"):
+            run_program(
+                """
+                git config alias.bad '!git commit 1 && git config alias.c "commit"'
+                """
+            )
 
     def test_function_bodies_are_validated_when_defined(self):
         invalid_sources = [

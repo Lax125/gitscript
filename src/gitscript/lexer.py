@@ -16,6 +16,9 @@ class TokenKind(Enum):
     INT_LITERAL = auto()
 
     GIT = auto()
+    INIT = auto()
+    CLONE = auto()
+    PULL = auto()
     COMMIT = auto()
     BRANCH = auto()
     CHECKOUT = auto()
@@ -82,6 +85,9 @@ class Token:
 
 _KEYWORDS = {
     "git": TokenKind.GIT,
+    "init": TokenKind.INIT,
+    "clone": TokenKind.CLONE,
+    "pull": TokenKind.PULL,
     "commit": TokenKind.COMMIT,
     "branch": TokenKind.BRANCH,
     "checkout": TokenKind.CHECKOUT,

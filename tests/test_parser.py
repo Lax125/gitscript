@@ -19,11 +19,13 @@ from gitscript.statements import (
     DeleteBranches,
     DeleteTags,
     Exit,
+    Init,
     ListBranches,
     Log,
     LogRange,
     MergeAbort,
     MergeContinue,
+    Pull,
     Revert,
     RevertRange,
     RevList,
@@ -173,6 +175,26 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(statements[3].value, 0)
         self.assertEqual(statements[4].value, 1)
         self.assertEqual(statements[5].value, 2)
+
+    def test_parse_init_and_pull(self):
+        statements = parse(
+            """
+            git init
+            git pull "library.gs"
+            git pull helpers.gs local:remote same
+            """
+        )
+
+        self.assertIsInstance(statements[0], Init)
+        self.assertIsInstance(statements[1], Pull)
+        self.assertEqual(statements[1].file_path, "library.gs")
+        self.assertEqual(statements[1].aliases, [])
+        self.assertIsInstance(statements[2], Pull)
+        self.assertEqual(statements[2].file_path, "helpers.gs")
+        self.assertEqual(statements[2].aliases, [("local", "remote"), ("same", "same")])
+
+        with self.assertRaises(ParseError):
+            parse("git clone copy.gs")
 
     def test_config_rejects_unknown_keys_and_values(self):
         invalid_sources = [

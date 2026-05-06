@@ -192,9 +192,6 @@ def _print_values(commits: list[Commit]) -> None:
         print(c.value)
 
 
-_ENDED_COLUMN = object()
-
-
 def _print_graph(repo: Repo, commits: list[Commit]) -> None:
     selected = set(commits)
     annotations = repo.visible_commit_annotations()
@@ -202,27 +199,35 @@ def _print_graph(repo: Repo, commits: list[Commit]) -> None:
 
     for c in commits:
         column = _find_column(columns, c)
+        is_new = False
         if column is None:
+            is_new = True
             column = _allocate_column(columns)
+
+        next_columns = columns.copy()
+
+        # clear ended columns first so they can be reused
 
         parent = c.parent
         parent_column = _find_column(columns, parent)
-
-        print(f"{_graph_prefix(columns, column, parent_column)}{c.order} value={c.value} char='{_format_graph_char(c.value)}'{_format_annotations(annotations.get(c, []))}")
-
-        # clear ended columns first so they can be reused
-        _clear_ended_columns(columns)
-
         if parent in selected:
             if parent_column is None:
-                columns[column] = parent
+                parent_column = column
+                next_columns[column] = parent
             elif parent_column != column:
-                columns[column] = _ENDED_COLUMN
+                next_columns[column] = None
         else:
-            columns[column] = _ENDED_COLUMN
+            next_columns[column] = None
 
-        if columns[-1] is None:
-            columns.pop()
+        while next_columns and next_columns[-1] is None:
+            next_columns.pop()
+
+        print(
+            f"{_graph_prefix(columns, column, parent_column, is_new)}{c.order} value={c.value} char={_format_graph_char(c.value)}"
+            f"{_format_annotations(annotations.get(c, []))}"
+        )
+
+        columns = next_columns
 
 
 def _find_column(columns: list[Commit | object | None], c: Commit) -> int | None:
@@ -242,30 +247,40 @@ def _allocate_column(columns: list[Commit | object | None]) -> int:
     return len(columns) - 1
 
 
-def _clear_ended_columns(columns: list[Commit | object | None]) -> None:
-    for i in range(len(columns)):
-        if columns[i] is _ENDED_COLUMN:
-            columns[i] = None
-
-
-def _graph_prefix(columns: list[Commit | object | None], commit_column: int, parent_column: int | None) -> str:
+def _graph_prefix(columns: list[Commit | object | None], commit_column: int, parent_column: int | None, is_new: bool) -> str:
     columns_to_print = columns.copy()
-    while len(columns_to_print) > commit_column + 1 and columns_to_print[-1] in {None, _ENDED_COLUMN}:
+    while len(columns_to_print) > commit_column + 1 and columns_to_print[-1] is None:
         columns_to_print.pop()
 
     cells = []
     for i in range(len(columns_to_print)):
         if i == commit_column:
-            cells.append("* ")
-        elif i == parent_column:
-            cells.append("┣━")
-        elif columns_to_print[i] is not None and columns_to_print[i] is not _ENDED_COLUMN:
-            if parent_column is not None and parent_column < i < commit_column:
-                cells.append("┿━")
+            if parent_column is None or parent_column < commit_column:
+                if is_new:
+                    cells.append("═ ")
+                else:
+                    cells.append("╧ ")
+            elif parent_column > commit_column:
+                if is_new:
+                    cells.append("═─")
+                else:
+                    cells.append("╧─")
+            elif is_new:
+                cells.append("╤ ")
             else:
-                cells.append("┃ ")
+                cells.append("╪ ")
+        elif i == parent_column:
+            if commit_column < parent_column:
+                cells.append("┤ ")
+            else:
+                cells.append("├─")
+        elif columns_to_print[i] is not None:
+            if parent_column is not None and parent_column < i < commit_column:
+                cells.append("┼─")
+            else:
+                cells.append("│ ")
         elif parent_column is not None and parent_column < i < commit_column:
-            cells.append("━━")
+            cells.append("──")
         else:
             cells.append("  ")
     return "".join(cells)
@@ -280,25 +295,9 @@ def _format_annotations(annotations: list[str]) -> str:
 def _format_graph_char(value: int) -> str:
     try:
         char = chr(value)
-    except ValueError:
-        return "?"
-    if char == "\0":
-        return "\\0"
-    if char == "\n":
-        return "\\n"
-    if char == "\r":
-        return "\\r"
-    if char == "\t":
-        return "\\t"
-    if char == "\\":
-        return "\\\\"
-    if char == "'":
-        return "\\'"
-    if char.isprintable():
-        return char
-    if 0 <= value <= 0xFF:
-        return f"\\x{value:02x}"
-    return f"\\u{value:04x}"
+    except (ValueError, OverflowError):
+        return "N/A"
+    return repr(char)
 
 
 def _create_commit(repo: Repo, value: int, parent: Optional[Commit], operation: str) -> Commit:

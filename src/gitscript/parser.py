@@ -35,6 +35,8 @@ from gitscript.statements import (
     LogRange,
     MergeAbort,
     MergeContinue,
+    Init,
+    Pull,
     Rebase,
     Revert,
     RevertRange,
@@ -142,7 +144,25 @@ def validate_function_body(body: str, parameters: list[Parameter]) -> None:
     lines = _prepare_lines(body.splitlines(), allow_incomplete=False)
     _validate_function_statement_starts(lines)
     _validate_function_parameter_uses(lines, parameter_kinds)
-    parse(_substitute_function_parameter_placeholders(body, parameter_kinds))
+    statements = parse(_substitute_function_parameter_placeholders(body, parameter_kinds))
+    _validate_function_has_no_alias_definitions(statements)
+
+
+def _validate_function_has_no_alias_definitions(statements: list[Statement]) -> None:
+    if any(_statement_contains_alias_definition(statement) for statement in statements):
+        raise ParseError("Function bodies cannot define aliases")
+
+
+def _statement_contains_alias_definition(statement: Statement) -> bool:
+    if isinstance(statement, (DefineAlias, DefineFunction)):
+        return True
+    if isinstance(statement, (Sequence, Rescue)):
+        return _statement_contains_alias_definition(statement.left) or _statement_contains_alias_definition(statement.right)
+    if isinstance(statement, StatementBlock):
+        return any(_statement_contains_alias_definition(nested) for nested in statement.statements)
+    if isinstance(statement, Conflict):
+        return any(_statement_contains_alias_definition(nested) for nested in statement.block_a + statement.block_b)
+    return False
 
 
 class _Parser:
@@ -397,6 +417,9 @@ _COMMANDS = {
     TokenKind.SHOW,
     TokenKind.LOG,
     TokenKind.REV_LIST,
+    TokenKind.INIT,
+    TokenKind.CLONE,
+    TokenKind.PULL,
 }
 
 _PARAMETER_TYPE_OPTIONS = frozenset({"-i", "-s", "-l", "-b", "-p", "-t", "-c", "-m", "-o"})
@@ -516,6 +539,13 @@ def _parse_simple_statement(tokens: list[Token], line_number: int) -> Statement 
         raise ParseError(f"Line {line_number}: Expected a git command")
     command = stream.expect_any(_COMMANDS | {TokenKind.IDENTIFIER}, "git command")
 
+    if command.kind == TokenKind.INIT:
+        stream.expect_done("git init")
+        return Init()
+    if command.kind == TokenKind.CLONE:
+        raise ParseError(f"Line {line_number}: git clone must be expanded before parsing")
+    if command.kind == TokenKind.PULL:
+        return _parse_pull(stream)
     if command.kind == TokenKind.COMMIT:
         return _parse_commit(stream)
     if command.kind == TokenKind.BRANCH:
@@ -629,6 +659,22 @@ def _parse_config(stream: _TokenCursor) -> Statement:
         return Config(key.value, verbosity)
 
     raise ParseError(f"Line {stream.line_number}: Unknown config key: {key.value}")
+
+
+def _parse_pull(stream: _TokenCursor) -> Pull:
+    file_path = stream.consume_argument("git pull").value
+    aliases: list[tuple[str, str]] = []
+    while not stream.done:
+        alias = stream.consume_argument("git pull alias").value
+        if ":" in alias:
+            target, source = alias.split(":", 1)
+            aliases.append((
+                _parse_name(target, stream.line_number, "alias"),
+                _parse_name(source, stream.line_number, "alias"),
+            ))
+        else:
+            aliases.append((_parse_name(alias, stream.line_number, "alias"), _parse_name(alias, stream.line_number, "alias")))
+    return Pull(file_path, aliases)
 
 
 def _parse_alias_config(key: Token, stream: _TokenCursor) -> DefineAlias | DefineFunction:

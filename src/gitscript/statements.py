@@ -12,8 +12,12 @@ from gitscript.commands import commit, commit_string, branch, checkout, reset, s
 from gitscript.operators import Condition, Operator
 from gitscript.repo import CommitBinding, Repo, RefBinding, protect_binding
 
-# noinspection PyUnusedImports
-import readline # Capture arrow keys on linux
+try:
+    # noinspection PyUnresolvedReferences,PyUnusedImports
+    if sys.platform != "win32":
+        import readline  # Capture arrow keys on linux
+except ImportError:
+    pass
 
 
 class Statement:
@@ -151,6 +155,13 @@ class Config(Statement):
             raise RuntimeError(f"Unknown config key: {self.key}")
 
 
+class Init(Statement):
+    def run(self, repo: Repo):
+        if repo.current_frame() is not None:
+            raise RuntimeError("git init is only valid in global scope")
+        repo.__init__()
+
+
 class DefineAlias(Statement):
     def __init__(self, name: str, fragment: str):
         self.name = name
@@ -171,6 +182,39 @@ class DefineFunction(Statement):
 
         validate_function_body(self.body, self.parameters)
         repo.aliases[self.name] = FunctionDefinition(self.parameters, self.body)
+
+
+class Pull(Statement):
+    def __init__(self, file_path: str, aliases: list[tuple[str, str]]):
+        self.file_path = file_path
+        self.aliases = aliases
+
+    def run(self, repo: Repo):
+        from gitscript.parser import parse
+        from gitscript.preprocessor import preprocess_file
+
+        if repo.current_frame() is not None:
+            raise RuntimeError("git pull is only valid in global scope")
+
+        source, _ = preprocess_file(self.file_path)
+        definitions: dict[str, DefineAlias | DefineFunction] = {}
+        for statement in parse(source):
+            _collect_alias_definitions(statement, definitions)
+
+        aliases = self.aliases
+        if not aliases:
+            aliases = [(name, name) for name in definitions]
+
+        missing = [source_name for _, source_name in aliases if source_name not in definitions]
+        if missing:
+            raise RuntimeError(f"Alias not found in {self.file_path}: {', '.join(missing)}")
+
+        for target_name, source_name in aliases:
+            definition = definitions[source_name]
+            if isinstance(definition, DefineAlias):
+                DefineAlias(target_name, definition.fragment).run(repo)
+            else:
+                DefineFunction(target_name, definition.parameters, definition.body).run(repo)
 
 
 class AliasCall(Statement):
@@ -202,6 +246,35 @@ class AliasCall(Statement):
             return
 
         raise RuntimeError(f"Unknown alias definition: {definition.__class__.__name__}")
+
+
+def _collect_alias_definitions(statement: Statement, definitions: dict[str, DefineAlias | DefineFunction]) -> None:
+    if isinstance(statement, (DefineAlias, DefineFunction)):
+        definitions[statement.name] = statement
+        return
+    if isinstance(statement, Sequence):
+        _collect_alias_definitions(statement.left, definitions)
+        _collect_alias_definitions(statement.right, definitions)
+        return
+    if isinstance(statement, Rescue):
+        _collect_alias_definitions(statement.left, definitions)
+        _collect_alias_definitions(statement.right, definitions)
+        return
+    if isinstance(statement, StatementBlock):
+        for nested in statement.statements:
+            _collect_alias_definitions(nested, definitions)
+
+
+def _contains_alias_definition(statement: Statement) -> bool:
+    if isinstance(statement, (DefineAlias, DefineFunction)):
+        return True
+    if isinstance(statement, (Sequence, Rescue)):
+        return _contains_alias_definition(statement.left) or _contains_alias_definition(statement.right)
+    if isinstance(statement, StatementBlock):
+        return any(_contains_alias_definition(nested) for nested in statement.statements)
+    if isinstance(statement, Conflict):
+        return any(_contains_alias_definition(nested) for nested in statement.block_a + statement.block_b)
+    return False
 
 
 class Exit(Statement):
@@ -657,4 +730,6 @@ def _run_shortform(repo: Repo, name: str, source: str) -> None:
     statements = parse(source)
     if len(statements) != 1:
         raise RuntimeError(f"Shortform {name} expansion must be exactly one statement")
+    if _contains_alias_definition(statements[0]):
+        raise RuntimeError(f"Shortform {name} cannot expand to an alias definition")
     statements[0].run(repo)
