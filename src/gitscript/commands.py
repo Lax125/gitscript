@@ -72,6 +72,14 @@ def checkout(repo: Repo, name: str):
 def tag(repo: Repo, name: str, ref: Ref = HeadRef()):
     repo.create_tag(name, resolve(ref, repo))
 
+def list_tags(repo: Repo):
+    for entry in repo.tag_listing():
+        binding = "".join(f" -> caller:{name}" for name in entry.binding_chain)
+        print(
+            f"   {entry.name}{binding} "
+            f"{entry.commit.order} value={entry.commit.value} char={_format_graph_char(entry.commit.value)}"
+        )
+
 def delete_tag(repo: Repo, name: str):
     repo.delete_tag(name)
 

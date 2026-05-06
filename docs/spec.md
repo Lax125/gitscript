@@ -224,10 +224,13 @@ Deletes the specified branches.
 ### `git tag`
 
 ```gitscript
+git tag
 git tag <name> [<commit-ref>]
 ```
 
-Creates a named reference to the current commit.
+With no arguments, prints the visible tags for debugging. Bound tags are printed first, then tags are sorted alphabetically. Each line shows the tag name, any caller binding chain, the commit number, the commit integer value, and the commit character value.
+
+With a name, creates a named reference to the current commit.
 
 If a commit is specified, the tag points there. Otherwise, it points to the current commit.
 
@@ -580,12 +583,12 @@ The exact edge layout is implementation-defined, but the graph is stable for a g
 Example shape:
 
 ```text
-* 7 value=65 char='A' [HEAD -> feature, tag:done, param:source]
-┃ * 6 value=66 char='B' [param:other]
-┣━┿━* 5 value=67 char='C' [tag:other2]
-┣━* 4 value=68 char='D' [branch:other3]
-* 3 value=10 char='\n' [main !]
-* 1 value=0 char='\0'
+╤ 5 value=67 char='C' [HEAD -> b]
+│ ╤ 4 value=66 char='B' [branch:main!]
+│ │ ╤ 3 value=65 char='A' [branch:a]
+├─┼─╧ 2 value=2 char='\x02'
+├─╧ 1 value=1 char='\x01'
+╧ 0 value=0 char='\x00' [tag:root]
 ```
 
 ---

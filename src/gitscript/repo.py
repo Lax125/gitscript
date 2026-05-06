@@ -20,6 +20,14 @@ class BranchListingEntry:
     binding_chain: list[str] = field(default_factory=list)
 
 
+@dataclass
+class TagListingEntry:
+    name: str
+    commit: Commit
+    bound: bool = False
+    binding_chain: list[str] = field(default_factory=list)
+
+
 class RefBinding:
     def resolve(self) -> Commit:
         raise NotImplementedError
@@ -34,6 +42,9 @@ class RefBinding:
         return False
 
     def branch_binding_chain(self) -> list[str]:
+        return []
+
+    def tag_binding_chain(self) -> list[str]:
         return []
 
     def set_branch(self, commit: Commit) -> None:
@@ -94,6 +105,11 @@ class TagBinding(RefBinding):
     def is_tag(self) -> bool:
         return self.name in self.tags
 
+    def tag_binding_chain(self) -> list[str]:
+        if not self.is_tag():
+            return []
+        return [self.name]
+
     def delete_tag(self) -> None:
         if self.name not in self.tags:
             raise RuntimeError(f"tag {self.name} does not exist")
@@ -121,6 +137,11 @@ class NameBinding(RefBinding):
 
     def branch_binding_chain(self) -> list[str]:
         if not self.is_branch():
+            return []
+        return [self.name]
+
+    def tag_binding_chain(self) -> list[str]:
+        if not self.is_tag():
             return []
         return [self.name]
 
@@ -183,6 +204,14 @@ class CallerBinding(RefBinding):
             return chain
         return [self.caller_name, *chain]
 
+    def tag_binding_chain(self) -> list[str]:
+        if not self.is_tag():
+            return []
+        chain = self.binding.tag_binding_chain()
+        if chain and chain[0] == self.caller_name:
+            return chain
+        return [self.caller_name, *chain]
+
     def set_branch(self, commit: Commit) -> None:
         self.binding.set_branch(commit)
 
@@ -218,6 +247,9 @@ class ProtectedBinding(RefBinding):
 
     def branch_binding_chain(self) -> list[str]:
         return self.binding.branch_binding_chain()
+
+    def tag_binding_chain(self) -> list[str]:
+        return self.binding.tag_binding_chain()
 
     def set_branch(self, commit: Commit) -> None:
         self.binding.set_branch(commit)
@@ -507,6 +539,37 @@ class Repo:
             name == self.HEAD,
             binding.is_protected(),
             binding.branch_binding_chain(),
+        )
+
+    def tag_listing(self) -> list[TagListingEntry]:
+        frame = self.current_frame()
+        if frame is None:
+            return sorted(
+                [
+                    TagListingEntry(name, commit)
+                    for name, commit in self.tags.items()
+                ],
+                key=lambda entry: entry.name,
+            )
+
+        entries: list[TagListingEntry] = []
+        for name, binding in frame.bindings.items():
+            if binding.is_tag():
+                entries.append(self._tag_binding_entry(name, binding))
+
+        entries.extend(
+            TagListingEntry(name, commit)
+            for name, commit in frame.tags.items()
+        )
+
+        return sorted(entries, key=lambda entry: (not entry.bound, entry.name))
+
+    def _tag_binding_entry(self, name: str, binding: RefBinding) -> TagListingEntry:
+        return TagListingEntry(
+            self.visible_name(name),
+            binding.resolve(),
+            True,
+            binding.tag_binding_chain(),
         )
 
     def protected_caller_names(self) -> set[str]:

@@ -18,6 +18,7 @@ from gitscript.statements import (
     DeleteBranches,
     DeleteTags,
     ListBranches,
+    ListTags,
     Log,
     LogRange,
     MergeAbort,
@@ -322,6 +323,21 @@ class StatementTests(unittest.TestCase):
 
         self.assertEqual(repo.tags["old"].value, 1)
         self.assertEqual(repo.branches["main"].value, 2)
+
+    def test_list_tags_prints_sorted_tags_with_commit_details(self):
+        repo = Repo()
+        Commit(65, amend=False).run(repo)
+        Tag("zeta").run(repo)
+        Commit(10, amend=False).run(repo)
+        Tag("alpha").run(repo)
+
+        output = capture_output(ListTags(), repo)
+
+        self.assertEqual(
+            output,
+            "   alpha 2 value=10 char='\\n'\n"
+            "   zeta 1 value=65 char='A'\n",
+        )
 
     def test_conflict_runs_first_block_when_condition_matches(self):
         repo = Repo()

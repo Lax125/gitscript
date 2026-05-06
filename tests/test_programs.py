@@ -1288,12 +1288,13 @@ git log root..HEAD
             """
             git checkout -b feature
             git branch result
-            git config alias.inspect -b output -p owner '!
+            git config alias.inspect -b output -p owner -l potential '!
                 git branch scratch
+                git branch $potential
                 git checkout scratch
                 git branch
             '
-            git inspect result main
+            git inspect result main create_this
             """
         )
 
@@ -1303,6 +1304,7 @@ git log root..HEAD
             "   main! -> caller:feature\n"
             "   owner! -> caller:main\n"
             "   output -> caller:result\n"
+            "   potential -> caller:create_this\n"
             " * scratch\n"
         )
 
@@ -1324,6 +1326,34 @@ git log root..HEAD
             output,
             " * main! -> caller:main\n"
             "   target -> caller:output -> caller:result\n",
+        )
+
+    def test_tag_listing_shows_bound_tags_first_and_commit_details(self):
+        repo, output = run_program(
+            """
+            git commit 65
+            git tag zeta
+            git commit 66
+            git tag alpha
+            git config alias.inspect -t selected -l newtag '!
+                git tag local
+                git tag $newtag
+                git tag
+            '
+            git inspect zeta beta
+            git tag
+            """
+        )
+
+        self.assertIn("beta", repo.tags)
+        self.assertEqual(
+            output,
+            "   newtag -> caller:beta 2 value=66 char='B'\n"
+            "   selected -> caller:zeta 1 value=65 char='A'\n"
+            "   local 2 value=66 char='B'\n"
+            "   alpha 2 value=66 char='B'\n"
+            "   beta 2 value=66 char='B'\n"
+            "   zeta 1 value=65 char='A'\n",
         )
 
     def test_global_exit_stops_execution(self):

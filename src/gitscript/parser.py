@@ -36,6 +36,7 @@ from gitscript.statements import (
     MergeAbort,
     MergeContinue,
     Init,
+    ListTags,
     Pull,
     Rebase,
     Revert,
@@ -628,6 +629,9 @@ def _parse_checkout(stream: _TokenCursor) -> Statement:
 
 
 def _parse_tag(stream: _TokenCursor) -> Statement:
+    if stream.done:
+        return ListTags()
+
     if stream.accept(TokenKind.OPTION, "-d"):
         names = []
         while not stream.done:

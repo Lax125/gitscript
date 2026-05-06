@@ -7,8 +7,8 @@ from typing import Optional
 from gitscript.commit_range import CommitRange, CommitSelector
 from gitscript.refs import Ref, resolve, HeadRef
 from gitscript.commands import commit, commit_string, branch, checkout, reset, show, log, tag, cherry_pick, \
-    rebase, delete_branch, delete_tag, cherry_pick_selectors, revert, revert_selectors, log_selectors, rev_list, \
-    rev_list_selectors
+    list_tags, rebase, delete_branch, delete_tag, cherry_pick_selectors, revert, revert_selectors, log_selectors, \
+    rev_list, rev_list_selectors
 from gitscript.operators import Condition, Operator
 from gitscript.repo import CommitBinding, Repo, RefBinding, protect_binding
 
@@ -131,6 +131,12 @@ class Tag(Statement):
 
     def run(self, repo: Repo):
         tag(repo, self.tag_name, self.ref)
+
+
+class ListTags(Statement):
+    def run(self, repo: Repo):
+        list_tags(repo)
+
 
 class DeleteTags(Statement):
     def __init__(self, tag_names: list[str]):

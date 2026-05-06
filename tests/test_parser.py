@@ -21,6 +21,7 @@ from gitscript.statements import (
     Exit,
     Init,
     ListBranches,
+    ListTags,
     Log,
     LogRange,
     MergeAbort,
@@ -34,6 +35,7 @@ from gitscript.statements import (
     Sequence,
     Show,
     StatementBlock,
+    Tag,
 )
 
 
@@ -361,6 +363,7 @@ class ParserTests(unittest.TestCase):
             git branch feature/path-1_ok
             git checkout -b feature2
             git branch branch3
+            git tag
             git tag tag4
             git tag old HEAD~1
             git branch -d feature/path-1_ok feature2 branch3
@@ -371,12 +374,14 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(statements[0].branch_name, "feature/path-1_ok")
         self.assertEqual(statements[1].branch_name, "feature2")
         self.assertEqual(statements[2].branch_name, "branch3")
-        self.assertEqual(statements[3].tag_name, "tag4")
-        self.assertIsInstance(statements[3].ref, HeadRef)
-        self.assertEqual(statements[4].tag_name, "old")
-        self.assertIsInstance(statements[4].ref, ConstantOffsetRef)
-        self.assertEqual(statements[5].branch_names, ["feature/path-1_ok", "feature2", "branch3"])
-        self.assertEqual(statements[6].tag_names, ["tag4"])
+        self.assertIsInstance(statements[3], ListTags)
+        self.assertIsInstance(statements[4], Tag)
+        self.assertEqual(statements[4].tag_name, "tag4")
+        self.assertIsInstance(statements[4].ref, HeadRef)
+        self.assertEqual(statements[5].tag_name, "old")
+        self.assertIsInstance(statements[5].ref, ConstantOffsetRef)
+        self.assertEqual(statements[6].branch_names, ["feature/path-1_ok", "feature2", "branch3"])
+        self.assertEqual(statements[7].tag_names, ["tag4"])
 
     def test_branch_tag_and_ref_names_reject_invalid_names(self):
         invalid_sources = [
