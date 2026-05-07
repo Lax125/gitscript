@@ -165,7 +165,81 @@ class MainTests(unittest.TestCase):
             if os.path.exists(library):
                 os.unlink(library)
 
-    def test_pull_rejects_pushed_alias_that_is_not_implemented_and_cycles(self):
+    def test_pull_allows_transitive_pass_through_exports(self):
+        suffix = uuid.uuid4().hex
+        source = os.path.join(os.getcwd(), f"tmp_source_{suffix}.gs")
+        passthrough = os.path.join(os.getcwd(), f"tmp_passthrough_{suffix}.gs")
+        try:
+            source_arg = source.replace("\\", "/")
+            passthrough_arg = passthrough.replace("\\", "/")
+            with open(source, "w", encoding="utf-8") as file:
+                file.write(
+                    "git config alias.my_alias 'commit 4'\n"
+                    "git push my_alias\n"
+                )
+            with open(passthrough, "w", encoding="utf-8") as file:
+                file.write(
+                    f'git pull "{source_arg}" my_alias\n'
+                    "git push my_alias\n"
+                )
+
+            repo = run_statements(
+                f'git pull "{passthrough_arg}" my_alias\n'
+                "git my_alias\n"
+            )
+
+            self.assertEqual(repo.branches["main"].value, 4)
+        finally:
+            for filename in (source, passthrough):
+                if os.path.exists(filename):
+                    os.unlink(filename)
+
+    def test_pull_and_local_definitions_share_last_definition_per_file(self):
+        suffix = uuid.uuid4().hex
+        source = os.path.join(os.getcwd(), f"tmp_source_{suffix}.gs")
+        local_wins = os.path.join(os.getcwd(), f"tmp_local_wins_{suffix}.gs")
+        pull_wins = os.path.join(os.getcwd(), f"tmp_pull_wins_{suffix}.gs")
+        try:
+            source_arg = source.replace("\\", "/")
+            local_wins_arg = local_wins.replace("\\", "/")
+            pull_wins_arg = pull_wins.replace("\\", "/")
+            with open(source, "w", encoding="utf-8") as file:
+                file.write(
+                    "git config alias.dep 'commit 8'\n"
+                    "git push dep\n"
+                )
+            with open(local_wins, "w", encoding="utf-8") as file:
+                file.write(
+                    f'git pull "{source_arg}" dep\n'
+                    "git config alias.dep 'commit 3'\n"
+                    "git config alias.public 'dep'\n"
+                    "git push public\n"
+                )
+            with open(pull_wins, "w", encoding="utf-8") as file:
+                file.write(
+                    "git config alias.dep 'commit 3'\n"
+                    f'git pull "{source_arg}" dep\n'
+                    "git config alias.public 'dep'\n"
+                    "git push public\n"
+                )
+
+            local_repo = run_statements(
+                f'git pull "{local_wins_arg}" public\n'
+                "git public\n"
+            )
+            pull_repo = run_statements(
+                f'git pull "{pull_wins_arg}" public\n'
+                "git public\n"
+            )
+
+            self.assertEqual(local_repo.branches["main"].value, 3)
+            self.assertEqual(pull_repo.branches["main"].value, 8)
+        finally:
+            for filename in (source, local_wins, pull_wins):
+                if os.path.exists(filename):
+                    os.unlink(filename)
+
+    def test_pull_rejects_pushed_alias_that_is_not_defined_and_cycles(self):
         suffix = uuid.uuid4().hex
         bad = os.path.join(os.getcwd(), f"tmp_bad_{suffix}.gs")
         left = os.path.join(os.getcwd(), f"tmp_left_{suffix}.gs")
@@ -176,7 +250,7 @@ class MainTests(unittest.TestCase):
             right_arg = right.replace("\\", "/")
             with open(bad, "w", encoding="utf-8") as file:
                 file.write("git push missing\n")
-            with self.assertRaisesRegex(RuntimeError, "not implemented"):
+            with self.assertRaisesRegex(RuntimeError, "not defined"):
                 run_statements(f'git pull "{bad_arg}" missing\n')
 
             with open(left, "w", encoding="utf-8") as file:

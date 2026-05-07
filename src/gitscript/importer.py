@@ -26,6 +26,17 @@ class LoadedModule:
     exports: dict[str, str]
 
 
+@dataclass
+class DefinitionEvent:
+    name: str
+    definition: DefineAlias | DefineFunction
+
+
+@dataclass
+class PullEvent:
+    pull: Pull
+
+
 def import_aliases(repo, file_path: str, aliases: list[tuple[str, str]]) -> None:
     module = load_module(repo, Path(file_path), Path.cwd(), [])
     missing = [source_name for _, source_name in aliases if source_name not in module.exports]
@@ -52,17 +63,20 @@ def load_module(repo, file_path: Path, base_dir: Path, stack: list[Path]) -> Loa
 
     source, module_base = preprocess_file(str(path))
     statements = parse(source)
-    local_definitions = _collect_alias_definitions(statements)
+    events = _collect_alias_events(statements)
     pushed = _collect_pushes(statements)
-    pulls = _collect_pulls(statements)
 
-    for name in pushed:
-        if name not in local_definitions:
-            raise RuntimeError(f"Alias {name} is pushed by {path} but is not implemented")
-
-    imported_names: dict[str, str] = {}
+    final_names: dict[str, str] = {}
+    final_local_definitions: dict[str, DefineAlias | DefineFunction] = {}
     all_definitions: dict[str, AliasDefinition | FunctionDefinition] = {}
-    for pull in pulls:
+    for event in events:
+        if isinstance(event, DefinitionEvent):
+            qualified_name = _qualified_name(path, event.name)
+            final_names[event.name] = qualified_name
+            final_local_definitions[event.name] = event.definition
+            continue
+
+        pull = event.pull
         if not pull.aliases:
             raise RuntimeError("git pull needs at least one alias name")
         pulled_module = load_module(repo, Path(pull.file_path), module_base, [*stack, path])
@@ -71,28 +85,27 @@ def load_module(repo, file_path: Path, base_dir: Path, stack: list[Path]) -> Loa
             raise RuntimeError(f"Alias not pushed by {pull.file_path}: {', '.join(missing)}")
         all_definitions.update(pulled_module.definitions)
         for target_name, source_name in pull.aliases:
-            imported_names[target_name] = pulled_module.exports[source_name]
+            final_names[target_name] = pulled_module.exports[source_name]
+            final_local_definitions.pop(target_name, None)
 
-    local_names = {
-        name: _qualified_name(path, name)
-        for name in local_definitions
-    }
-    replacement_names = {**imported_names, **local_names}
+    for name in pushed:
+        if name not in final_names:
+            raise RuntimeError(f"Alias {name} is pushed by {path} but is not defined")
 
-    for name, definition in local_definitions.items():
-        qualified_name = local_names[name]
+    for name, definition in final_local_definitions.items():
+        qualified_name = final_names[name]
         if isinstance(definition, DefineAlias):
-            fragment = _rewrite_alias_fragment(definition.fragment, replacement_names)
+            fragment = _rewrite_alias_fragment(definition.fragment, final_names)
             all_definitions[qualified_name] = AliasDefinition(fragment)
         else:
-            body = _rewrite_source_aliases(definition.body, replacement_names)
+            body = _rewrite_source_aliases(definition.body, final_names)
             validate_function_body(body, definition.parameters)
             all_definitions[qualified_name] = FunctionDefinition(definition.parameters, body)
 
     module = LoadedModule(
         path=path,
         definitions=all_definitions,
-        exports={name: local_names[name] for name in pushed},
+        exports={name: final_names[name] for name in pushed},
     )
     cache[path] = module
     return module
@@ -102,24 +115,27 @@ def _qualified_name(path: Path, name: str) -> str:
     return f"_import/{abs(hash(path))}/{name}"
 
 
-def _collect_alias_definitions(statements: list[Statement]) -> dict[str, DefineAlias | DefineFunction]:
-    definitions: dict[str, DefineAlias | DefineFunction] = {}
+def _collect_alias_events(statements: list[Statement]) -> list[DefinitionEvent | PullEvent]:
+    events: list[DefinitionEvent | PullEvent] = []
     for statement in statements:
-        _collect_alias_definition(statement, definitions)
-    return definitions
+        _collect_alias_event(statement, events)
+    return events
 
 
-def _collect_alias_definition(statement: Statement, definitions: dict[str, DefineAlias | DefineFunction]) -> None:
+def _collect_alias_event(statement: Statement, events: list[DefinitionEvent | PullEvent]) -> None:
     if isinstance(statement, (DefineAlias, DefineFunction)):
-        definitions[statement.name] = statement
+        events.append(DefinitionEvent(statement.name, statement))
+        return
+    if isinstance(statement, Pull):
+        events.append(PullEvent(statement))
         return
     if isinstance(statement, (Sequence, Rescue)):
-        _collect_alias_definition(statement.left, definitions)
-        _collect_alias_definition(statement.right, definitions)
+        _collect_alias_event(statement.left, events)
+        _collect_alias_event(statement.right, events)
         return
     if isinstance(statement, StatementBlock):
         for nested in statement.statements:
-            _collect_alias_definition(nested, definitions)
+            _collect_alias_event(nested, events)
 
 
 def _collect_pushes(statements: list[Statement]) -> set[str]:
@@ -140,26 +156,6 @@ def _collect_push(statement: Statement, pushes: set[str]) -> None:
     if isinstance(statement, StatementBlock):
         for nested in statement.statements:
             _collect_push(nested, pushes)
-
-
-def _collect_pulls(statements: list[Statement]) -> list[Pull]:
-    pulls: list[Pull] = []
-    for statement in statements:
-        _collect_pull(statement, pulls)
-    return pulls
-
-
-def _collect_pull(statement: Statement, pulls: list[Pull]) -> None:
-    if isinstance(statement, Pull):
-        pulls.append(statement)
-        return
-    if isinstance(statement, (Sequence, Rescue)):
-        _collect_pull(statement.left, pulls)
-        _collect_pull(statement.right, pulls)
-        return
-    if isinstance(statement, StatementBlock):
-        for nested in statement.statements:
-            _collect_pull(nested, pulls)
 
 
 def _rewrite_alias_fragment(fragment: str, replacements: dict[str, str]) -> str:

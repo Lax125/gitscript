@@ -148,13 +148,13 @@ Imports pushed alias or function definitions from another GitScript file. Non-al
 
 At least one alias name must be specified. `git pull` never imports all aliases by default.
 
-If an alias or function is defined multiple times in the pulled file, the last definition wins.
+Each file has one alias context for imports. Both `git pull` and local `git config alias.<name>` definitions write into that context. If the same alias name appears multiple times, the last `git pull` or local definition in the file wins for that file.
 
-Each requested source alias must be exposed by `git push` in the pulled file and must be implemented in that same file. Otherwise, `git pull` raises an error.
+Each requested source alias must be exposed by `git push` in the pulled file and must exist in that file's final alias context. Otherwise, `git pull` raises an error.
 
 `<local-alias>:<source-alias>` imports the source alias under a different local name.
 
-Imports are dynamically loaded and cached by file. Importing an alias first loads the target file, resolves that file's own explicit imports, rewrites alias usages inside loaded definitions so they refer to the specific loaded dependency, and caches all aliases implemented by the file. Later imports from the same file reuse the cached definitions.
+Imports are dynamically loaded and cached by file. Importing an alias first loads the target file, resolves that file's own explicit imports, builds the file's final alias context, rewrites alias usages inside loaded definitions so they refer to the specific loaded dependency, and caches the result. Later imports from the same file reuse the cached definitions.
 
 Loaded dependency aliases are hidden behind qualified internal names. If `foo.gs` imports `bar` from `bar.gs`, then a function imported from `foo.gs` can call its `bar` dependency without exposing `bar` in the importing program's alias namespace.
 
@@ -168,11 +168,16 @@ The import loader tracks file dependencies as a DAG. If loading a file would cre
 git push [<alias-name>]...
 ```
 
-Exposes aliases or functions implemented in the current file for `git pull`.
+Exposes aliases or functions from the current file's final alias context for `git pull`.
 
 `git push` is only meaningful to the import loader. When a file is run directly, it has no effect beyond requiring global scope.
 
-Pushed aliases must be implemented in the same file. A file cannot re-export an alias it imported from another file.
+Pushed aliases must exist in the file's final alias context. Since `git pull` contributes to that context, a file can pass through an imported alias:
+
+```gitscript
+git pull lib.gs my_alias
+git push my_alias
+```
 
 ### `git branch`
 
