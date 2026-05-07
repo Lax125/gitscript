@@ -11,6 +11,8 @@ class FunctionFrame:
     bindings: dict[str, "RefBinding"] = field(default_factory=dict)
     parameters: dict[str, str] = field(default_factory=dict)
     caller_head: str = "main"
+    commit_verbose: bool = False
+    merge_verbosity: int = 0
 
 
 @dataclass
@@ -284,8 +286,8 @@ class Repo:
         self.branches = {"main": root}
         self.tags = {}
         self.HEAD = "main"
-        self.commit_verbose = False
-        self.merge_verbosity = 0
+        self._commit_verbose = False
+        self._merge_verbosity = 0
         self.core_worktree = Path.cwd()
         self.aliases = {}
         self.import_cache = {}
@@ -301,6 +303,36 @@ class Repo:
             return None
         return self.call_stack[-1]
 
+    @property
+    def commit_verbose(self) -> bool:
+        frame = self.current_frame()
+        if frame is not None:
+            return frame.commit_verbose
+        return self._commit_verbose
+
+    @commit_verbose.setter
+    def commit_verbose(self, value: bool) -> None:
+        frame = self.current_frame()
+        if frame is not None:
+            frame.commit_verbose = value
+        else:
+            self._commit_verbose = value
+
+    @property
+    def merge_verbosity(self) -> int:
+        frame = self.current_frame()
+        if frame is not None:
+            return frame.merge_verbosity
+        return self._merge_verbosity
+
+    @merge_verbosity.setter
+    def merge_verbosity(self, value: int) -> None:
+        frame = self.current_frame()
+        if frame is not None:
+            frame.merge_verbosity = value
+        else:
+            self._merge_verbosity = value
+
     def push_function_frame(self, bindings: dict[str, RefBinding], parameters: dict[str, str]) -> None:
         caller_head = self.HEAD
         bindings = dict(bindings)
@@ -308,7 +340,13 @@ class Repo:
             self.bind_caller_branch(caller_head),
             "main",
         )
-        self.call_stack.append(FunctionFrame(bindings=bindings, parameters=parameters, caller_head=caller_head))
+        self.call_stack.append(FunctionFrame(
+            bindings=bindings,
+            parameters=parameters,
+            caller_head=caller_head,
+            commit_verbose=self.commit_verbose,
+            merge_verbosity=self.merge_verbosity,
+        ))
         self.HEAD = "main"
 
     def pop_function_frame(self) -> None:

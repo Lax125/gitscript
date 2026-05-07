@@ -21,6 +21,7 @@ from gitscript.statements import (
     Exit,
     Init,
     ListBranches,
+    ListConfig,
     ListTags,
     Log,
     LogRange,
@@ -161,6 +162,7 @@ class ParserTests(unittest.TestCase):
     def test_parse_config(self):
         statements = parse(
             """
+            git config
             git config commit.verbose true
             git config commit.verbose 0
             git config commit.verbose 2
@@ -171,16 +173,16 @@ class ParserTests(unittest.TestCase):
             """
         )
 
-        self.assertIsInstance(statements[0], Config)
-        self.assertEqual(statements[0].key, "commit.verbose")
-        self.assertEqual(statements[0].value, 1)
-        self.assertEqual(statements[1].value, 0)
-        self.assertEqual(statements[2].value, 2)
-        self.assertEqual(statements[3].value, 0)
-        self.assertEqual(statements[4].value, 1)
-        self.assertEqual(statements[5].value, 2)
-        self.assertEqual(statements[6].key, "core.worktree")
-        self.assertEqual(statements[6].value, "./examples")
+        self.assertIsInstance(statements[0], ListConfig)
+        self.assertEqual(statements[1].key, "commit.verbose")
+        self.assertEqual(statements[1].value, 1)
+        self.assertEqual(statements[2].value, 0)
+        self.assertEqual(statements[3].value, 2)
+        self.assertEqual(statements[4].value, 0)
+        self.assertEqual(statements[5].value, 1)
+        self.assertEqual(statements[6].value, 2)
+        self.assertEqual(statements[7].key, "core.worktree")
+        self.assertEqual(statements[7].value, "./examples")
 
     def test_parse_init_and_pull(self):
         statements = parse(

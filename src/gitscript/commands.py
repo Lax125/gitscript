@@ -76,7 +76,8 @@ def tag(repo: Repo, name: str, ref: Ref = HeadRef()):
 def list_tags(repo: Repo):
     for entry in repo.tag_listing():
         binding = "".join(
-            ansi.paint(" -> caller:", ansi.BINDING) + ansi.paint(name, ansi.TAG)
+            f"{ansi.paint(' -> ', ansi.BINDING_SEPARATOR)}{ansi.paint('caller', ansi.BINDING)}"
+            f"{ansi.paint(':', ansi.BINDING_SEPARATOR)}{ansi.paint(name, ansi.TAG)}"
             for name in entry.binding_chain
         )
         print(
@@ -303,7 +304,7 @@ def _graph_prefix(columns: list[Commit | object | None], commit_column: int, par
 def _format_annotations(annotations: list[str]) -> str:
     if not annotations:
         return ""
-    return f" {ansi.paint('[', ansi.BINDING)}{', '.join(_format_annotation(annotation) for annotation in annotations)}{ansi.paint(']', ansi.BINDING)}"
+    return f" {ansi.paint('[', ansi.BINDING_SEPARATOR)}{', '.join(_format_annotation(annotation) for annotation in annotations)}{ansi.paint(']', ansi.BINDING_SEPARATOR)}"
 
 
 def _format_annotation(annotation: str) -> str:
@@ -323,22 +324,23 @@ def _format_annotation(annotation: str) -> str:
         if protected:
             branch = branch[:-1]
         return (
-            ansi.paint("branch:", ansi.BINDING)
+            ansi.paint("branch", ansi.BINDING)
+            + ansi.paint(":", ansi.BINDING_SEPARATOR)
             + ansi.paint(branch, ansi.BRANCH)
             + (ansi.paint("!", ansi.PROTECTED) if protected else "")
         )
     if annotation.startswith("tag:"):
-        return ansi.paint("tag:", ansi.BINDING) + ansi.paint(annotation[len("tag:"):], ansi.TAG)
+        return ansi.paint("tag", ansi.BINDING) + ansi.paint(":", ansi.BINDING_SEPARATOR) + ansi.paint(annotation[len("tag:"):], ansi.TAG)
     if annotation.startswith("param:"):
-        return ansi.paint("param:", ansi.BINDING) + ansi.paint(annotation[len("param:"):], ansi.PARAM)
+        return ansi.paint("param", ansi.BINDING) + ansi.paint(":", ansi.BINDING_SEPARATOR) + ansi.paint(annotation[len("param:"):], ansi.PARAM)
     return ansi.paint(annotation, ansi.BINDING)
 
 
 def _format_commit_metadata(c: Commit) -> str:
     return (
         f"{ansi.paint(c.order, ansi.COMMIT)} "
-        f"{ansi.paint('value=', ansi.BINDING)}{ansi.paint(c.value, ansi.VALUE)} "
-        f"{ansi.paint('char=', ansi.BINDING)}{ansi.paint(_format_graph_char(c.value), ansi.CHAR)}"
+        f"{ansi.paint('value', ansi.BINDING)}{ansi.paint('=', ansi.BINDING_SEPARATOR)}{ansi.paint(c.value, ansi.VALUE)} "
+        f"{ansi.paint('char', ansi.BINDING)}{ansi.paint('=', ansi.BINDING_SEPARATOR)}{ansi.paint(_format_graph_char(c.value), ansi.CHAR)}"
     )
 
 
@@ -363,10 +365,10 @@ def _log_commit(repo: Repo, c: Commit, parent: Optional[Commit], operation: str)
     parent_value = "none" if parent is None else str(parent.value)
     print(
         f"{ansi.paint('[commit]', ansi.DEBUG)} "
-        f"{ansi.paint('branch=', ansi.BINDING)}{ansi.paint(repo.HEAD, ansi.BRANCH)} "
-        f"{ansi.paint('value=', ansi.BINDING)}{ansi.paint(c.value, ansi.VALUE)} "
-        f"{ansi.paint('parent=', ansi.BINDING)}{ansi.paint(parent_value, ansi.COMMIT)} "
-        f"{ansi.paint('operation=', ansi.BINDING)}{ansi.paint(operation, ansi.DEBUG)}",
+        f"{ansi.paint('branch', ansi.BINDING)}{ansi.paint('=', ansi.BINDING_SEPARATOR)}{ansi.paint(repo.HEAD, ansi.BRANCH)} "
+        f"{ansi.paint('value', ansi.BINDING)}{ansi.paint('=', ansi.BINDING_SEPARATOR)}{ansi.paint(c.value, ansi.VALUE)} "
+        f"{ansi.paint('parent', ansi.BINDING)}{ansi.paint('=', ansi.BINDING_SEPARATOR)}{ansi.paint(parent_value, ansi.COMMIT)} "
+        f"{ansi.paint('operation', ansi.BINDING)}{ansi.paint('=', ansi.BINDING_SEPARATOR)}{ansi.paint(operation, ansi.DEBUG)}",
         file=sys.stderr,
     )
 

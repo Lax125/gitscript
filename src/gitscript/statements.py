@@ -115,7 +115,8 @@ class ListBranches(Statement):
             current = ansi.paint("*", ansi.DEBUG) if entry.current else " "
             protected = ansi.paint("!", ansi.PROTECTED) if entry.protected else ""
             binding = "".join(
-                ansi.paint(" -> caller:", ansi.BINDING) + ansi.paint(name, ansi.BRANCH)
+                f"{ansi.paint(' -> ', ansi.BINDING_SEPARATOR)}{ansi.paint('caller', ansi.BINDING)}"
+                f"{ansi.paint(':', ansi.BINDING_SEPARATOR)}{ansi.paint(name, ansi.BRANCH)}"
                 for name in entry.binding_chain
             )
             print(f" {current} {ansi.paint(entry.name, ansi.BRANCH)}{protected}{binding}")
@@ -171,6 +172,35 @@ class Config(Statement):
             repo.core_worktree = path.resolve()
         else:
             raise RuntimeError(f"Unknown config key: {self.key}")
+
+
+class ListConfig(Statement):
+    def run(self, repo: Repo):
+        worktree = str(repo.core_worktree).replace("\\", "/")
+        print(
+            f"{ansi.paint('commit.verbose', ansi.BINDING)} "
+            f"{ansi.paint(int(repo.commit_verbose), ansi.VALUE)}"
+        )
+        print(
+            f"{ansi.paint('merge.verbosity', ansi.BINDING)} "
+            f"{ansi.paint(repo.merge_verbosity, ansi.VALUE)}"
+        )
+        print(
+            f"{ansi.paint('core.worktree', ansi.BINDING)} "
+            f"{ansi.paint(worktree, ansi.VALUE)}"
+        )
+        for name, definition in sorted(repo.aliases.items()):
+            if name.startswith("_import/"):
+                continue
+            if isinstance(definition, AliasDefinition):
+                print(f"{ansi.paint('alias.shortform', ansi.BINDING)} {ansi.paint(name, ansi.SHORTFORM)}")
+            elif isinstance(definition, FunctionDefinition):
+                parameters = " ".join(
+                    f"{ansi.paint(parameter.kind, ansi.MERGE)} {ansi.paint(parameter.name, ansi.PARAM)}"
+                    for parameter in definition.parameters
+                )
+                suffix = f" {parameters}" if parameters else ""
+                print(f"{ansi.paint('alias.function', ansi.BINDING)} {ansi.paint(name, ansi.FUNCTION)}{suffix}")
 
 
 class Init(Statement):
@@ -546,8 +576,8 @@ def _log_merge_begin(repo: Repo, label: Optional[str], condition: Condition) -> 
         return
     print(
         f"{ansi.paint('[merge]', ansi.MERGE)} {ansi.paint('begin', ansi.DEBUG)} "
-        f"{ansi.paint('label=', ansi.BINDING)}{ansi.paint(_label_text(label), ansi.PARAM)} "
-        f"{ansi.paint('condition=', ansi.BINDING)}{ansi.paint(condition.value, ansi.MERGE)}",
+        f"{ansi.paint('label', ansi.BINDING)}{ansi.paint('=', ansi.BINDING_SEPARATOR)}{ansi.paint(_label_text(label), ansi.PARAM)} "
+        f"{ansi.paint('condition', ansi.BINDING)}{ansi.paint('=', ansi.BINDING_SEPARATOR)}{ansi.paint(condition.value, ansi.MERGE)}",
         file=sys.stderr,
     )
 
@@ -564,11 +594,11 @@ def _log_merge_check(
         return
     print(
         f"{ansi.paint('[merge]', ansi.MERGE)} {ansi.paint('check', ansi.DEBUG)} "
-        f"{ansi.paint('label=', ansi.BINDING)}{ansi.paint(_label_text(label), ansi.PARAM)} "
-        f"{ansi.paint('condition=', ansi.BINDING)}{ansi.paint(condition.value, ansi.MERGE)} "
-        f"{ansi.paint('left=', ansi.BINDING)}{ansi.paint(value_a, ansi.VALUE)} "
-        f"{ansi.paint('right=', ansi.BINDING)}{ansi.paint(value_b, ansi.VALUE)} "
-        f"{ansi.paint('selected=', ansi.BINDING)}{ansi.paint(selected, ansi.DEBUG)}",
+        f"{ansi.paint('label', ansi.BINDING)}{ansi.paint('=', ansi.BINDING_SEPARATOR)}{ansi.paint(_label_text(label), ansi.PARAM)} "
+        f"{ansi.paint('condition', ansi.BINDING)}{ansi.paint('=', ansi.BINDING_SEPARATOR)}{ansi.paint(condition.value, ansi.MERGE)} "
+        f"{ansi.paint('left', ansi.BINDING)}{ansi.paint('=', ansi.BINDING_SEPARATOR)}{ansi.paint(value_a, ansi.VALUE)} "
+        f"{ansi.paint('right', ansi.BINDING)}{ansi.paint('=', ansi.BINDING_SEPARATOR)}{ansi.paint(value_b, ansi.VALUE)} "
+        f"{ansi.paint('selected', ansi.BINDING)}{ansi.paint('=', ansi.BINDING_SEPARATOR)}{ansi.paint(selected, ansi.DEBUG)}",
         file=sys.stderr,
     )
 
@@ -578,8 +608,8 @@ def _log_merge_signal(repo: Repo, signal: str, target: Optional[str], handled_by
         return
     print(
         f"{ansi.paint('[merge]', ansi.MERGE)} {ansi.paint(signal, ansi.DEBUG)} "
-        f"{ansi.paint('target=', ansi.BINDING)}{ansi.paint(_label_text(target), ansi.PARAM)} "
-        f"{ansi.paint('handled_by=', ansi.BINDING)}{ansi.paint(_label_text(handled_by), ansi.PARAM)}",
+        f"{ansi.paint('target', ansi.BINDING)}{ansi.paint('=', ansi.BINDING_SEPARATOR)}{ansi.paint(_label_text(target), ansi.PARAM)} "
+        f"{ansi.paint('handled_by', ansi.BINDING)}{ansi.paint('=', ansi.BINDING_SEPARATOR)}{ansi.paint(_label_text(handled_by), ansi.PARAM)}",
         file=sys.stderr,
     )
 

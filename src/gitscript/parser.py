@@ -36,6 +36,7 @@ from gitscript.statements import (
     MergeAbort,
     MergeContinue,
     Init,
+    ListConfig,
     ListTags,
     Pull,
     Push,
@@ -651,6 +652,9 @@ def _parse_tag(stream: _TokenCursor) -> Statement:
 
 
 def _parse_config(stream: _TokenCursor) -> Statement:
+    if stream.done:
+        return ListConfig()
+
     key = stream.expect(TokenKind.CONFIG_KEY, "git config")
     if key.value.startswith("alias."):
         return _parse_alias_config(key, stream)

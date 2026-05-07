@@ -288,6 +288,7 @@ git checkout -b <branch-name> [<commit-ref>]
 ### `git config`
 
 ```gitscript
+git config
 git config commit.verbose <int>
 git config merge.verbosity 0
 git config merge.verbosity 1
@@ -297,11 +298,15 @@ git config core.worktree <path>
 
 Configures debug logging and file-loading behavior.
 
+With no arguments, `git config` prints all currently visible configuration for debugging. This includes `commit.verbose`, `merge.verbosity`, `core.worktree`, visible shortforms, and visible functions. Shortforms are listed by name. Functions are listed by name plus each parameter's type and name. Internal imported dependency aliases are not shown.
+
 Debug logs are diagnostic output and are written separately from program output so commands like `git log`, `git show`, and `git rev-list` remain usable as program output.
 
 #### `commit.verbose`
 
 Default: `0`
+
+This value is scoped to the current execution frame. Function calls inherit the caller's current value, and changes inside a function do not affect the caller.
 
 When `commit.verbose` is nonzero, GitScript logs every new commit created by any process, including:
 
@@ -327,6 +332,8 @@ Each commit log entry includes enough information to identify:
 #### `merge.verbosity`
 
 Default: `0`
+
+This value is scoped to the current execution frame. Function calls inherit the caller's current value, and changes inside a function do not affect the caller.
 
 Merge verbosity controls debug logging for merge-conflict control flow:
 

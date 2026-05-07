@@ -17,8 +17,10 @@ from gitscript.statements import (
     Commit,
     CommitString,
     Conflict,
+    Config,
     DeleteBranches,
     DeleteTags,
+    ListConfig,
     ListBranches,
     ListTags,
     Log,
@@ -33,6 +35,9 @@ from gitscript.statements import (
     RevListRange,
     Show,
     Tag,
+    AliasDefinition,
+    FunctionDefinition,
+    Parameter,
 )
 
 
@@ -357,6 +362,27 @@ class StatementTests(unittest.TestCase):
         self.assertIn(ansi.TAG + "alpha" + ansi.RESET, raw_output)
         self.assertIn(ansi.COMMIT + "2" + ansi.RESET, raw_output)
         self.assertIn(ansi.VALUE + "10" + ansi.RESET, raw_output)
+
+    def test_list_config_prints_colored_config_and_visible_aliases(self):
+        repo = Repo()
+        Config("commit.verbose", 1).run(repo)
+        Config("merge.verbosity", 2).run(repo)
+        repo.aliases["c"] = AliasDefinition("commit")
+        repo.aliases["bump"] = FunctionDefinition([Parameter("-i", "amount")], "git commit amount")
+        repo.aliases["_import/123/private"] = AliasDefinition("commit 99")
+
+        output = capture_output(ListConfig(), repo)
+
+        self.assertIn("commit.verbose 1\n", output)
+        self.assertIn("merge.verbosity 2\n", output)
+        self.assertIn("alias.function bump -i amount\n", output)
+        self.assertIn("alias.shortform c\n", output)
+        self.assertNotIn("private", output)
+
+        raw_output = capture_raw_output(ListConfig(), repo)
+        self.assertIn(ansi.BINDING + "commit.verbose" + ansi.RESET, raw_output)
+        self.assertIn(ansi.VALUE + "1" + ansi.RESET, raw_output)
+        self.assertIn(ansi.FUNCTION + "bump" + ansi.RESET, raw_output)
 
     def test_conflict_runs_first_block_when_condition_matches(self):
         repo = Repo()

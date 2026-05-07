@@ -799,6 +799,86 @@ git log HEAD~19..HEAD
         self.assertNotIn("condition=eq", debug)
         self.assertEqual(repo.branches["counter"].value, 0)
 
+    def test_commit_and_merge_verbosity_are_scoped_to_function_frames(self):
+        repo, output, debug = run_program_with_debug(
+            """
+            git config commit.verbose 1
+            git config merge.verbosity 1
+            git config alias.quiet '!
+                git config commit.verbose 0
+                git config merge.verbosity 0
+                git commit 1
+                git merge -s eq
+                <<<<<<< main
+                    git commit 2
+                =======
+                    git commit 3
+                >>>>>>> main
+            '
+            git quiet
+            git commit 4
+            git merge -s eq
+            <<<<<<< main
+                git commit 5
+            =======
+                git commit 6
+            >>>>>>> main
+            """
+        )
+
+        self.assertEqual(output, "")
+        self.assertNotIn("value=1", debug)
+        self.assertNotIn("value=2", debug)
+        self.assertIn("[commit] branch=main value=4", debug)
+        self.assertIn("[commit] branch=main value=5", debug)
+        self.assertIn("[merge] begin label=<none> condition=eq", debug)
+        self.assertEqual(repo.commit_verbose, True)
+        self.assertEqual(repo.merge_verbosity, 1)
+
+    def test_function_frames_inherit_commit_and_merge_verbosity(self):
+        repo, output, debug = run_program_with_debug(
+            """
+            git config commit.verbose 1
+            git config merge.verbosity 1
+            git config alias.noisy '!
+                git commit 1
+                git merge -s eq
+                <<<<<<< main
+                    git commit 2
+                =======
+                    git commit 3
+                >>>>>>> main
+            '
+            git noisy
+            """
+        )
+
+        self.assertEqual(output, "")
+        self.assertIn("[commit] branch=main value=1", debug)
+        self.assertIn("[merge] begin label=<none> condition=eq", debug)
+
+    def test_git_config_lists_current_config_and_visible_aliases(self):
+        repo, output = run_program(
+            """
+            git config commit.verbose 1
+            git config merge.verbosity 2
+            git config alias.c 'commit'
+            git config alias.bump -i amount -s text '!
+                git commit amount
+                git commit -m text
+            '
+            git config
+            """
+        )
+
+        self.assertIn("commit.verbose 1\n", output)
+        self.assertIn("merge.verbosity 2\n", output)
+        self.assertIn("core.worktree ", output)
+        self.assertIn("alias.shortform c\n", output)
+        self.assertIn("alias.function bump -i amount -s text\n", output)
+        self.assertEqual(repo.commit_verbose, True)
+        self.assertEqual(repo.merge_verbosity, 2)
+
     def test_statement_separator_and_true_false_integer_literals(self):
         repo, output = run_program(
             """

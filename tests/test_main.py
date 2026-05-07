@@ -152,12 +152,15 @@ class MainTests(unittest.TestCase):
                 file.write(
                     f'git pull "{helper_arg}" inc\n'
                     "git config alias.twice '!git inc && git inc'\n"
+                    "git config alias.inc_amend 'inc --amend'\n"
                     "git push twice\n"
+                    "git push inc_amend\n"
                 )
 
             repo = run_statements(
-                f'git pull "{library_arg}" twice\n'
+                f'git pull "{library_arg}" twice inc_amend\n'
                 "git twice\n"
+                "git inc_amend\n"
                 "git inc || git commit 9\n"
             )
 
