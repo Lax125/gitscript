@@ -1,6 +1,7 @@
 import sys
 import shlex
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
 from gitscript import ansi
@@ -152,7 +153,7 @@ class DeleteTags(Statement):
 
 
 class Config(Statement):
-    def __init__(self, key: str, value: int):
+    def __init__(self, key: str, value: int | str):
         self.key = key
         self.value = value
 
@@ -161,6 +162,13 @@ class Config(Statement):
             repo.commit_verbose = self.value != 0
         elif self.key == "merge.verbosity":
             repo.merge_verbosity = int(self.value)
+        elif self.key == "core.worktree":
+            if repo.current_frame() is not None:
+                raise RuntimeError("git config core.worktree is only valid in global scope")
+            path = Path(str(self.value))
+            if not path.is_absolute():
+                path = repo.core_worktree / path
+            repo.core_worktree = path.resolve()
         else:
             raise RuntimeError(f"Unknown config key: {self.key}")
 
@@ -169,7 +177,9 @@ class Init(Statement):
     def run(self, repo: Repo):
         if repo.current_frame() is not None:
             raise RuntimeError("git init is only valid in global scope")
+        core_worktree = repo.core_worktree
         repo.__init__()
+        repo.core_worktree = core_worktree
 
 
 class DefineAlias(Statement):

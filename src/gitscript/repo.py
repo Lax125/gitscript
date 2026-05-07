@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from gitscript.commit import Commit
 
@@ -285,6 +286,7 @@ class Repo:
         self.HEAD = "main"
         self.commit_verbose = False
         self.merge_verbosity = 0
+        self.core_worktree = Path.cwd()
         self.aliases = {}
         self.import_cache = {}
         self.call_stack: list[FunctionFrame] = []

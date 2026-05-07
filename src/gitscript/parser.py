@@ -655,16 +655,23 @@ def _parse_config(stream: _TokenCursor) -> Statement:
     if key.value.startswith("alias."):
         return _parse_alias_config(key, stream)
 
-    value = stream.expect(TokenKind.INT_LITERAL, "git config value")
-    stream.expect_done("git config")
     if key.value == "commit.verbose":
+        value = stream.expect(TokenKind.INT_LITERAL, "git config value")
+        stream.expect_done("git config")
         return Config(key.value, _parse_integer_literal(value.value, stream.line_number, "commit.verbose"))
 
     if key.value == "merge.verbosity":
+        value = stream.expect(TokenKind.INT_LITERAL, "git config value")
+        stream.expect_done("git config")
         verbosity = _parse_integer_literal(value.value, stream.line_number, "merge.verbosity")
         if verbosity not in {0, 1, 2}:
             raise ParseError(f"Line {stream.line_number}: merge.verbosity must be 0, 1, or 2")
         return Config(key.value, verbosity)
+
+    if key.value == "core.worktree":
+        value = stream.consume_argument("git config core.worktree").value
+        stream.expect_done("git config core.worktree")
+        return Config(key.value, value)
 
     raise ParseError(f"Line {stream.line_number}: Unknown config key: {key.value}")
 

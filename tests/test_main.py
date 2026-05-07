@@ -66,6 +66,36 @@ class MainTests(unittest.TestCase):
                 if os.path.exists(filename):
                     os.unlink(filename)
 
+    def test_core_worktree_controls_clone_paths_and_survives_init(self):
+        suffix = uuid.uuid4().hex
+        directory = os.path.join(os.getcwd(), f"tmp_worktree_{suffix}")
+        initial = os.path.join(os.getcwd(), f"tmp_initial_{suffix}.gs")
+        cloned = os.path.join(directory, "cloned.gs")
+        try:
+            directory_arg = directory.replace("\\", "/")
+            os.makedirs(directory)
+            with open(cloned, "w", encoding="utf-8") as file:
+                file.write("git commit 8\n")
+            with open(initial, "w", encoding="utf-8") as file:
+                file.write(
+                    f'git config core.worktree "{directory_arg}"\n'
+                    "git init\n"
+                    "git clone cloned.gs\n"
+                    "git commit 9\n"
+                )
+
+            repo = run_file(initial)
+
+            self.assertEqual(repo.branches["main"].value, 9)
+            self.assertEqual(repo.branches["main"].parent.value, 8)
+            self.assertEqual(str(repo.core_worktree), os.getcwd())
+        finally:
+            for filename in (initial, cloned):
+                if os.path.exists(filename):
+                    os.unlink(filename)
+            if os.path.isdir(directory):
+                os.rmdir(directory)
+
     def test_pull_imports_requested_alias_definitions_without_running_program(self):
         library = os.path.join(os.getcwd(), f"tmp_library_{uuid.uuid4().hex}.gs")
         try:
@@ -138,6 +168,41 @@ class MainTests(unittest.TestCase):
             for filename in (helper, library):
                 if os.path.exists(filename):
                     os.unlink(filename)
+
+    def test_pull_resolves_nested_imports_relative_to_loaded_file_worktree(self):
+        suffix = uuid.uuid4().hex
+        directory = os.path.join(os.getcwd(), f"tmp_modules_{suffix}")
+        helper = os.path.join(directory, "helper.gs")
+        library = os.path.join(directory, "library.gs")
+        try:
+            library_arg = library.replace("\\", "/")
+            os.makedirs(directory)
+            with open(helper, "w", encoding="utf-8") as file:
+                file.write(
+                    "git config alias.inc 'commit 1'\n"
+                    "git push inc\n"
+                )
+            with open(library, "w", encoding="utf-8") as file:
+                file.write(
+                    'git pull "helper.gs" inc\n'
+                    "git config alias.twice 'inc && git inc'\n"
+                    "git push twice\n"
+                )
+
+            repo = run_statements(
+                f'git pull "{library_arg}" twice\n'
+                "git twice\n"
+            )
+
+            self.assertEqual(repo.branches["main"].value, 1)
+            self.assertEqual(repo.branches["main"].parent.value, 1)
+            self.assertEqual(str(repo.core_worktree), os.getcwd())
+        finally:
+            for filename in (helper, library):
+                if os.path.exists(filename):
+                    os.unlink(filename)
+            if os.path.isdir(directory):
+                os.rmdir(directory)
 
     def test_pull_resolves_intrafile_dependencies_and_requires_push(self):
         library = os.path.join(os.getcwd(), f"tmp_library_{uuid.uuid4().hex}.gs")

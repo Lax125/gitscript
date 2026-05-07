@@ -3,6 +3,7 @@ import io
 from unittest.mock import patch
 
 from gitscript.ansi import strip as strip_ansi
+from gitscript.main import run_file
 from gitscript.parser import parse
 from gitscript.repo import Repo
 from gitscript.statements import ExitSignal
@@ -29,3 +30,16 @@ def run_program_with_debug(source: str, inputs: list[str] | None = None) -> tupl
                     pass
 
     return repo, strip_ansi(output.getvalue()), strip_ansi(debug.getvalue())
+
+
+def run_file_with_debug(filename: str, inputs: list[str] | None = None) -> tuple[str, str]:
+    output = io.StringIO()
+    debug = io.StringIO()
+    input_values = iter(inputs or [])
+
+    with contextlib.redirect_stdout(output):
+        with contextlib.redirect_stderr(debug):
+            with patch("builtins.input", side_effect=lambda: next(input_values)):
+                run_file(filename)
+
+    return strip_ansi(output.getvalue()), strip_ansi(debug.getvalue())

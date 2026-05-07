@@ -4,6 +4,7 @@ from pathlib import Path
 from gitscript.preprocessor import preprocess_file
 from gitscript.statements import (
     AliasDefinition,
+    Config,
     DefineAlias,
     DefineFunction,
     FunctionDefinition,
@@ -37,8 +38,13 @@ class PullEvent:
     pull: Pull
 
 
+@dataclass
+class WorktreeEvent:
+    path: str
+
+
 def import_aliases(repo, file_path: str, aliases: list[tuple[str, str]]) -> None:
-    module = load_module(repo, Path(file_path), Path.cwd(), [])
+    module = load_module(repo, Path(file_path), repo.core_worktree, [])
     missing = [source_name for _, source_name in aliases if source_name not in module.exports]
     if missing:
         raise RuntimeError(f"Alias not pushed by {file_path}: {', '.join(missing)}")
@@ -61,11 +67,12 @@ def load_module(repo, file_path: Path, base_dir: Path, stack: list[Path]) -> Loa
 
     from gitscript.parser import parse, validate_function_body
 
-    source, module_base = preprocess_file(str(path))
+    source, _ = preprocess_file(str(path), original_worktree=base_dir)
     statements = parse(source)
     events = _collect_alias_events(statements)
     pushed = _collect_pushes(statements)
 
+    current_worktree = base_dir.resolve()
     final_names: dict[str, str] = {}
     final_local_definitions: dict[str, DefineAlias | DefineFunction] = {}
     all_definitions: dict[str, AliasDefinition | FunctionDefinition] = {}
@@ -76,10 +83,17 @@ def load_module(repo, file_path: Path, base_dir: Path, stack: list[Path]) -> Loa
             final_local_definitions[event.name] = event.definition
             continue
 
+        if isinstance(event, WorktreeEvent):
+            worktree = Path(event.path)
+            if not worktree.is_absolute():
+                worktree = current_worktree / worktree
+            current_worktree = worktree.resolve()
+            continue
+
         pull = event.pull
         if not pull.aliases:
             raise RuntimeError("git pull needs at least one alias name")
-        pulled_module = load_module(repo, Path(pull.file_path), module_base, [*stack, path])
+        pulled_module = load_module(repo, Path(pull.file_path), current_worktree, [*stack, path])
         missing = [source_name for _, source_name in pull.aliases if source_name not in pulled_module.exports]
         if missing:
             raise RuntimeError(f"Alias not pushed by {pull.file_path}: {', '.join(missing)}")
@@ -115,19 +129,22 @@ def _qualified_name(path: Path, name: str) -> str:
     return f"_import/{abs(hash(path))}/{name}"
 
 
-def _collect_alias_events(statements: list[Statement]) -> list[DefinitionEvent | PullEvent]:
-    events: list[DefinitionEvent | PullEvent] = []
+def _collect_alias_events(statements: list[Statement]) -> list[DefinitionEvent | PullEvent | WorktreeEvent]:
+    events: list[DefinitionEvent | PullEvent | WorktreeEvent] = []
     for statement in statements:
         _collect_alias_event(statement, events)
     return events
 
 
-def _collect_alias_event(statement: Statement, events: list[DefinitionEvent | PullEvent]) -> None:
+def _collect_alias_event(statement: Statement, events: list[DefinitionEvent | PullEvent | WorktreeEvent]) -> None:
     if isinstance(statement, (DefineAlias, DefineFunction)):
         events.append(DefinitionEvent(statement.name, statement))
         return
     if isinstance(statement, Pull):
         events.append(PullEvent(statement))
+        return
+    if isinstance(statement, Config) and statement.key == "core.worktree":
+        events.append(WorktreeEvent(str(statement.value)))
         return
     if isinstance(statement, (Sequence, Rescue)):
         _collect_alias_event(statement.left, events)

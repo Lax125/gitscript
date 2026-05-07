@@ -167,6 +167,7 @@ class ParserTests(unittest.TestCase):
             git config merge.verbosity 0
             git config merge.verbosity 1
             git config merge.verbosity 2
+            git config core.worktree "./examples"
             """
         )
 
@@ -178,6 +179,8 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(statements[3].value, 0)
         self.assertEqual(statements[4].value, 1)
         self.assertEqual(statements[5].value, 2)
+        self.assertEqual(statements[6].key, "core.worktree")
+        self.assertEqual(statements[6].value, "./examples")
 
     def test_parse_init_and_pull(self):
         statements = parse(

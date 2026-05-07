@@ -1,20 +1,17 @@
-import os
 import unittest
 from pathlib import Path
 
-from utils import run_program
+from utils import run_file_with_debug
 
 ROOT = Path(__file__).resolve().parents[1]
-EXAMPLES_DIR = ROOT / "examples"
 
 
-def get_example(name: str) -> str:
-    return (EXAMPLES_DIR / name).read_text(encoding="utf-8")
+def example_path(name: str) -> Path:
+    return ROOT / "examples" / name
 
 
 def run_example(name: str, inputs: list[str] | None = None) -> str:
-    os.chdir(EXAMPLES_DIR)
-    return run_program(get_example(name), inputs)[1]
+    return run_file_with_debug(str(example_path(name).resolve()), inputs)[0]
 
 
 class ExampleTests(unittest.TestCase):
@@ -63,7 +60,7 @@ class ExampleTests(unittest.TestCase):
         )
 
     def test_quine(self):
-        self.assertEqual(run_example("quine.gs", [""]), get_example("quine.gs"))
+        self.assertEqual(run_example("quine.gs", [""]), example_path("quine.gs").read_text())
 
 
 if __name__ == '__main__':

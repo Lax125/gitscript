@@ -1,4 +1,4 @@
-git pull squash.gs squash
+git pull lib/squash.gs squash
 
 git tag root
 

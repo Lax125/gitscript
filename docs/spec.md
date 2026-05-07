@@ -292,9 +292,10 @@ git config commit.verbose <int>
 git config merge.verbosity 0
 git config merge.verbosity 1
 git config merge.verbosity 2
+git config core.worktree <path>
 ```
 
-Configures debug logging.
+Configures debug logging and file-loading behavior.
 
 Debug logs are diagnostic output and are written separately from program output so commands like `git log`, `git show`, and `git rev-list` remain usable as program output.
 
@@ -339,6 +340,20 @@ At verbosity `1`, each conditional-check log includes:
 * the condition
 * the two resolved commit values
 * whether the top or bottom block was selected
+
+#### `core.worktree`
+
+Default: the process working directory.
+
+`core.worktree` is the directory used to resolve relative paths for `git pull` and `git clone`.
+
+When a GitScript file starts loading through the `gitscript` command, `git pull`, or `git clone`, GitScript temporarily sets `core.worktree` to the loaded file's directory. When that file finishes loading, GitScript restores the previous worktree.
+
+For `git clone`, those worktree changes are literally inserted into the preprocessed source around the cloned file contents, along with the existing `git init`.
+
+For `git pull`, worktree changes are handled by the import loader as part of the file's ordered import context, so further imports in a loaded file resolve relative to that file unless the file changes `core.worktree` itself.
+
+`git init` resets repository state and debug settings, but it does not change `core.worktree`.
 
 At verbosity `2`, continue and abort logs include:
 

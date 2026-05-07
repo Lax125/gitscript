@@ -19,7 +19,7 @@ def run_statements(
         repo: Repo = Repo()
 
     if preprocess:
-        source = preprocess_source(source, base_dir)
+        source = preprocess_source(source, repo.core_worktree if base_dir is None else base_dir)
 
     try:
         for statement in parse(source):
@@ -54,7 +54,7 @@ def repl() -> None:
 
         buffer.append(line)
         try:
-            statements = parse_repl(preprocess_source("\n".join(buffer)).splitlines())
+            statements = parse_repl(preprocess_source("\n".join(buffer), repo.core_worktree).splitlines())
         except IncompleteInput:
             continue
         except (ParseError, PreprocessError) as exc:
