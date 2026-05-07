@@ -1,3 +1,5 @@
+git pull squash.gs squash
+
 git tag root
 
 # Read the inclusive upper bound.
@@ -24,6 +26,7 @@ git branch primes root
 git branch candidate two
 git branch walker root
 git branch remainder root
+git branch square root  # heh, square root
 git branch composite root
 
 # For each candidate, try dividing by every prime found so far.
@@ -40,6 +43,19 @@ git merge -s lte
     <<<<<<< walker
         git merge --abort
     =======
+        # Optimization: skip numbers higher than sqrt(candidate)
+        git checkout square
+        git reset walker
+        git cherry-pick walker -s=mul
+        git merge -s gt
+        <<<<<<< square
+            git checkout walker
+            git reset HEAD~1
+            git merge --continue walk_primes
+        =======
+            git merge --abort
+        >>>>>>> candidate
+
         git checkout remainder
         git reset candidate
         git cherry-pick walker -s=mod
@@ -69,6 +85,7 @@ git merge -s lte
 
     git checkout candidate
     git cherry-pick one -s=add
+    git squash root
     git merge --continue
 =======
     git merge --abort

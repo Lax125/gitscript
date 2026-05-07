@@ -1,16 +1,19 @@
+import os
 import unittest
 from pathlib import Path
 
 from utils import run_program
 
 ROOT = Path(__file__).resolve().parents[1]
+EXAMPLES_DIR = ROOT / "examples"
 
 
 def get_example(name: str) -> str:
-    return (ROOT / "examples" / name).read_text(encoding="utf-8")
+    return (EXAMPLES_DIR / name).read_text(encoding="utf-8")
 
 
 def run_example(name: str, inputs: list[str] | None = None) -> str:
+    os.chdir(EXAMPLES_DIR)
     return run_program(get_example(name), inputs)[1]
 
 

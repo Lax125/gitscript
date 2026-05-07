@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61", "readline"]
+requires = ["setuptools>=61", "readline", "os"]
 build-backend = "setuptools.build_meta"
 
 [project]
