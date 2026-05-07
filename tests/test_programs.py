@@ -148,6 +148,26 @@ git log HEAD~19..HEAD
                 """
             )
 
+    def test_global_only_commands_reject_function_scope(self):
+        cases = [
+            ("git config core.worktree \".\"", "core.worktree"),
+            ("git push exported", "git push"),
+            ("git pull missing.gs exported", "git pull"),
+            ("git init", "git init"),
+        ]
+
+        for statement, message in cases:
+            with self.subTest(statement=statement):
+                with self.assertRaisesRegex(RuntimeError, f"{message}.*global scope"):
+                    run_program(
+                        f"""
+                        git config alias.bad '!
+                            {statement}
+                        '
+                        git bad
+                        """
+                    )
+
     def test_branch_without_arguments_lists_global_branches(self):
         repo, output = run_program(
             """

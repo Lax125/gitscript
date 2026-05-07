@@ -341,6 +341,12 @@ At verbosity `1`, each conditional-check log includes:
 * the two resolved commit values
 * whether the top or bottom block was selected
 
+At verbosity `2`, continue and abort logs include:
+
+* whether the signal is `continue` or `abort`
+* the target label, if present
+* the merge block that handles the signal
+
 #### `core.worktree`
 
 Default: the process working directory.
@@ -349,17 +355,13 @@ Default: the process working directory.
 
 When a GitScript file starts loading through the `gitscript` command, `git pull`, or `git clone`, GitScript temporarily sets `core.worktree` to the loaded file's directory. When that file finishes loading, GitScript restores the previous worktree.
 
-For `git clone`, those worktree changes are literally inserted into the preprocessed source around the cloned file contents, along with the existing `git init`.
+For `git clone`, those worktree changes are inserted into the preprocessed source around the cloned file contents, along with the existing `git init`.
 
 For `git pull`, worktree changes are handled by the import loader as part of the file's ordered import context, so further imports in a loaded file resolve relative to that file unless the file changes `core.worktree` itself.
 
 `git init` resets repository state and debug settings, but it does not change `core.worktree`.
 
-At verbosity `2`, continue and abort logs include:
-
-* whether the signal is `continue` or `abort`
-* the target label, if present
-* the merge block that handles the signal
+`git config core.worktree <path>` is valid only at global scope.
 
 ---
 
