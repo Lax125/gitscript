@@ -178,6 +178,10 @@ class ListConfig(Statement):
     def run(self, repo: Repo):
         worktree = str(repo.core_worktree).replace("\\", "/")
         print(
+            f"{ansi.paint('core.worktree', ansi.BINDING)} "
+            f"{ansi.paint(worktree, ansi.VALUE)}"
+        )
+        print(
             f"{ansi.paint('commit.verbose', ansi.BINDING)} "
             f"{ansi.paint(int(repo.commit_verbose), ansi.VALUE)}"
         )
@@ -185,11 +189,7 @@ class ListConfig(Statement):
             f"{ansi.paint('merge.verbosity', ansi.BINDING)} "
             f"{ansi.paint(repo.merge_verbosity, ansi.VALUE)}"
         )
-        print(
-            f"{ansi.paint('core.worktree', ansi.BINDING)} "
-            f"{ansi.paint(worktree, ansi.VALUE)}"
-        )
-        for name, definition in sorted(repo.aliases.items()):
+        for name, definition in sorted(repo.aliases.items(), key=lambda item: (isinstance(item[1], FunctionDefinition), item[0])):
             if name.startswith("_import/"):
                 continue
             if isinstance(definition, AliasDefinition):
