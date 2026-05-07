@@ -38,6 +38,7 @@ from gitscript.statements import (
     Init,
     ListTags,
     Pull,
+    Push,
     Rebase,
     Revert,
     RevertRange,
@@ -421,6 +422,7 @@ _COMMANDS = {
     TokenKind.INIT,
     TokenKind.CLONE,
     TokenKind.PULL,
+    TokenKind.PUSH,
 }
 
 _PARAMETER_TYPE_OPTIONS = frozenset({"-i", "-s", "-l", "-b", "-p", "-t", "-c", "-m", "-o"})
@@ -547,6 +549,8 @@ def _parse_simple_statement(tokens: list[Token], line_number: int) -> Statement 
         raise ParseError(f"Line {line_number}: git clone must be expanded before parsing")
     if command.kind == TokenKind.PULL:
         return _parse_pull(stream)
+    if command.kind == TokenKind.PUSH:
+        return _parse_push(stream)
     if command.kind == TokenKind.COMMIT:
         return _parse_commit(stream)
     if command.kind == TokenKind.BRANCH:
@@ -679,6 +683,13 @@ def _parse_pull(stream: _TokenCursor) -> Pull:
         else:
             aliases.append((_parse_name(alias, stream.line_number, "alias"), _parse_name(alias, stream.line_number, "alias")))
     return Pull(file_path, aliases)
+
+
+def _parse_push(stream: _TokenCursor) -> Push:
+    aliases = []
+    while not stream.done:
+        aliases.append(_parse_name_token(stream.expect(TokenKind.IDENTIFIER, "git push alias"), "alias"))
+    return Push(aliases)
 
 
 def _parse_alias_config(key: Token, stream: _TokenCursor) -> DefineAlias | DefineFunction:

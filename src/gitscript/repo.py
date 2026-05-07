@@ -286,6 +286,7 @@ class Repo:
         self.commit_verbose = False
         self.merge_verbosity = 0
         self.aliases = {}
+        self.import_cache = {}
         self.call_stack: list[FunctionFrame] = []
 
     def allocate_commit(self, value: int, parent: Commit | None) -> Commit:

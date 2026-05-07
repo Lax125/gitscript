@@ -200,31 +200,23 @@ class Pull(Statement):
         self.aliases = aliases
 
     def run(self, repo: Repo):
-        from gitscript.parser import parse
-        from gitscript.preprocessor import preprocess_file
+        from gitscript.importer import import_aliases
 
         if repo.current_frame() is not None:
             raise RuntimeError("git pull is only valid in global scope")
+        if not self.aliases:
+            raise RuntimeError("git pull needs at least one alias name")
 
-        source, _ = preprocess_file(self.file_path)
-        definitions: dict[str, DefineAlias | DefineFunction] = {}
-        for statement in parse(source):
-            _collect_alias_definitions(statement, definitions)
+        import_aliases(repo, self.file_path, self.aliases)
 
-        aliases = self.aliases
-        if not aliases:
-            aliases = [(name, name) for name in definitions]
 
-        missing = [source_name for _, source_name in aliases if source_name not in definitions]
-        if missing:
-            raise RuntimeError(f"Alias not found in {self.file_path}: {', '.join(missing)}")
+class Push(Statement):
+    def __init__(self, aliases: list[str]):
+        self.aliases = aliases
 
-        for target_name, source_name in aliases:
-            definition = definitions[source_name]
-            if isinstance(definition, DefineAlias):
-                DefineAlias(target_name, definition.fragment).run(repo)
-            else:
-                DefineFunction(target_name, definition.parameters, definition.body).run(repo)
+    def run(self, repo: Repo):
+        if repo.current_frame() is not None:
+            raise RuntimeError("git push is only valid in global scope")
 
 
 class AliasCall(Statement):

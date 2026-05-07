@@ -27,6 +27,7 @@ from gitscript.statements import (
     MergeAbort,
     MergeContinue,
     Pull,
+    Push,
     Revert,
     RevertRange,
     RevList,
@@ -184,6 +185,7 @@ class ParserTests(unittest.TestCase):
             git init
             git pull "library.gs"
             git pull helpers.gs local:remote same
+            git push local same
             """
         )
 
@@ -194,6 +196,8 @@ class ParserTests(unittest.TestCase):
         self.assertIsInstance(statements[2], Pull)
         self.assertEqual(statements[2].file_path, "helpers.gs")
         self.assertEqual(statements[2].aliases, [("local", "remote"), ("same", "same")])
+        self.assertIsInstance(statements[3], Push)
+        self.assertEqual(statements[3].aliases, ["local", "same"])
 
         with self.assertRaises(ParseError):
             parse("git clone copy.gs")

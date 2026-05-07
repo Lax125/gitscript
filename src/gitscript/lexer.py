@@ -19,6 +19,7 @@ class TokenKind(Enum):
     INIT = auto()
     CLONE = auto()
     PULL = auto()
+    PUSH = auto()
     COMMIT = auto()
     BRANCH = auto()
     CHECKOUT = auto()
@@ -88,6 +89,7 @@ _KEYWORDS = {
     "init": TokenKind.INIT,
     "clone": TokenKind.CLONE,
     "pull": TokenKind.PULL,
+    "push": TokenKind.PUSH,
     "commit": TokenKind.COMMIT,
     "branch": TokenKind.BRANCH,
     "checkout": TokenKind.CHECKOUT,

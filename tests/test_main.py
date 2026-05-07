@@ -75,6 +75,7 @@ class MainTests(unittest.TestCase):
                     "git config alias.bump 'commit 1'\n"
                     "git config alias.bump 'commit 2'\n"
                     "git config alias.say -s text '!git commit -m text'\n"
+                    "git push bump say\n"
                 )
 
             library_arg = library.replace("\\", "/")
@@ -90,15 +91,11 @@ class MainTests(unittest.TestCase):
             self.assertEqual(repo.branches["main"].parent.value, 2)
             self.assertNotEqual(repo.branches["main"].parent.value, 99)
 
-            with self.assertRaisesRegex(RuntimeError, "Alias not found"):
+            with self.assertRaisesRegex(RuntimeError, "not pushed"):
                 run_statements(f'git pull "{library_arg}" missing\n')
 
-            repo = run_statements(
-                f'git pull "{library_arg}"\n'
-                "git bump\n"
-            )
-            self.assertIn("say", repo.aliases)
-            self.assertEqual(repo.branches["main"].value, 2)
+            with self.assertRaisesRegex(RuntimeError, "needs at least one alias"):
+                run_statements(f'git pull "{library_arg}"\n')
 
             with self.assertRaisesRegex(RuntimeError, "global scope"):
                 run_statements(
@@ -108,6 +105,99 @@ class MainTests(unittest.TestCase):
         finally:
             if os.path.exists(library):
                 os.unlink(library)
+
+    def test_pull_resolves_imported_dependencies_without_public_namespace_pollution(self):
+        suffix = uuid.uuid4().hex
+        helper = os.path.join(os.getcwd(), f"tmp_helper_{suffix}.gs")
+        library = os.path.join(os.getcwd(), f"tmp_library_{suffix}.gs")
+        try:
+            helper_arg = helper.replace("\\", "/")
+            library_arg = library.replace("\\", "/")
+            with open(helper, "w", encoding="utf-8") as file:
+                file.write(
+                    "git config alias.inc 'commit 1'\n"
+                    "git push inc\n"
+                )
+            with open(library, "w", encoding="utf-8") as file:
+                file.write(
+                    f'git pull "{helper_arg}" inc\n'
+                    "git config alias.twice '!git inc && git inc'\n"
+                    "git push twice\n"
+                )
+
+            repo = run_statements(
+                f'git pull "{library_arg}" twice\n'
+                "git twice\n"
+                "git inc || git commit 9\n"
+            )
+
+            self.assertEqual(repo.branches["main"].value, 9)
+            self.assertEqual(repo.branches["main"].parent.value, 1)
+            self.assertNotIn("inc", repo.aliases)
+        finally:
+            for filename in (helper, library):
+                if os.path.exists(filename):
+                    os.unlink(filename)
+
+    def test_pull_resolves_intrafile_dependencies_and_requires_push(self):
+        library = os.path.join(os.getcwd(), f"tmp_library_{uuid.uuid4().hex}.gs")
+        try:
+            library_arg = library.replace("\\", "/")
+            with open(library, "w", encoding="utf-8") as file:
+                file.write(
+                    "git config alias.helper 'commit 3'\n"
+                    "git config alias.public 'helper && git helper'\n"
+                    "git push public\n"
+                )
+
+            repo = run_statements(
+                f'git pull "{library_arg}" public\n'
+                "git public\n"
+                "git helper || git commit 5\n"
+            )
+
+            self.assertEqual(repo.branches["main"].value, 5)
+            self.assertEqual(repo.branches["main"].parent.value, 3)
+
+            with self.assertRaisesRegex(RuntimeError, "not pushed"):
+                run_statements(f'git pull "{library_arg}" helper\n')
+        finally:
+            if os.path.exists(library):
+                os.unlink(library)
+
+    def test_pull_rejects_pushed_alias_that_is_not_implemented_and_cycles(self):
+        suffix = uuid.uuid4().hex
+        bad = os.path.join(os.getcwd(), f"tmp_bad_{suffix}.gs")
+        left = os.path.join(os.getcwd(), f"tmp_left_{suffix}.gs")
+        right = os.path.join(os.getcwd(), f"tmp_right_{suffix}.gs")
+        try:
+            bad_arg = bad.replace("\\", "/")
+            left_arg = left.replace("\\", "/")
+            right_arg = right.replace("\\", "/")
+            with open(bad, "w", encoding="utf-8") as file:
+                file.write("git push missing\n")
+            with self.assertRaisesRegex(RuntimeError, "not implemented"):
+                run_statements(f'git pull "{bad_arg}" missing\n')
+
+            with open(left, "w", encoding="utf-8") as file:
+                file.write(
+                    f'git pull "{right_arg}" right\n'
+                    "git config alias.left 'commit 1'\n"
+                    "git push left\n"
+                )
+            with open(right, "w", encoding="utf-8") as file:
+                file.write(
+                    f'git pull "{left_arg}" left\n'
+                    "git config alias.right 'commit 2'\n"
+                    "git push right\n"
+                )
+
+            with self.assertRaisesRegex(RuntimeError, "cycle detected"):
+                run_statements(f'git pull "{left_arg}" left\n')
+        finally:
+            for filename in (bad, left, right):
+                if os.path.exists(filename):
+                    os.unlink(filename)
 
     def test_main_runs_file_when_filename_is_given(self):
         with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as file:
