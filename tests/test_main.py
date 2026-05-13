@@ -41,6 +41,17 @@ class MainTests(unittest.TestCase):
 
         self.assertEqual(repo.branches["main"].value, 13)
 
+    def test_run_file_can_leave_worktree_at_script_directory_for_interactive_mode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            filename = os.path.join(directory, "script.gs")
+            with open(filename, "w", encoding="utf-8") as file:
+                file.write("git commit 13\n")
+
+            repo = run_file(filename, restore_worktree=False)
+
+            self.assertEqual(repo.branches["main"].value, 13)
+            self.assertEqual(str(repo.core_worktree), os.path.abspath(directory))
+
     def test_clone_preprocesses_file_with_init_and_cycle_detection(self):
         suffix = uuid.uuid4().hex
         initial = os.path.join(os.getcwd(), f"tmp_initial_{suffix}.gs")
@@ -362,6 +373,39 @@ class MainTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         repl_mock.assert_called_once_with()
+
+    def test_main_interactive_runs_file_then_starts_repl_with_script_worktree(self):
+        with tempfile.TemporaryDirectory() as directory:
+            filename = os.path.join(directory, "script.gs")
+            with open(filename, "w", encoding="utf-8") as file:
+                file.write("git commit 21\n")
+
+            with patch("gitscript.main.repl") as repl_mock:
+                exit_code = main(["-i", filename])
+
+            self.assertEqual(exit_code, 0)
+            repl_mock.assert_called_once()
+            repo = repl_mock.call_args.args[0]
+            self.assertEqual(repo.branches["main"].value, 21)
+            self.assertEqual(str(repo.core_worktree), os.path.abspath(directory))
+
+    def test_main_interactive_repl_resolves_paths_from_script_directory(self):
+        output = io.StringIO()
+        inputs = iter(["git clone sibling.gs", "git show", "quit"])
+        with tempfile.TemporaryDirectory() as directory:
+            filename = os.path.join(directory, "script.gs")
+            sibling = os.path.join(directory, "sibling.gs")
+            with open(filename, "w", encoding="utf-8") as file:
+                file.write("git commit 21\n")
+            with open(sibling, "w", encoding="utf-8") as file:
+                file.write("git commit 34\n")
+
+            with patch("builtins.input", side_effect=lambda prompt="": next(inputs)):
+                with contextlib.redirect_stdout(output):
+                    exit_code = main(["-i", filename])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(output.getvalue(), "34\n")
 
     def test_repl_runs_statements_and_keeps_repo_state(self):
         output = io.StringIO()

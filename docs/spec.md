@@ -355,6 +355,11 @@ When a file starts loading through the command-line entrypoint, `git pull`, or
 `git clone`, GitScript temporarily sets `core.worktree` to that file's directory
 and restores the previous value when the file finishes loading.
 
+When the command-line entrypoint is run with `-i`, GitScript runs the file and
+then enters REPL mode with the same repository. In that mode, the initial file's
+worktree is not restored to the directory where `gitscript` was launched before
+the REPL begins.
+
 ## Mutating Repository Memory
 
 ### `git commit`

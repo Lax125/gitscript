@@ -30,13 +30,14 @@ def run_statements(
     return repo
 
 
-def run_file(filename: str) -> Repo:
-    source, base_dir = preprocess_file(filename)
-    return run_statements(source, base_dir=str(base_dir), preprocess=False)
+def run_file(filename: str, repo: Repo | None = None, restore_worktree: bool = True) -> Repo:
+    source, base_dir = preprocess_file(filename, restore_worktree=restore_worktree)
+    return run_statements(source, repo=repo, base_dir=str(base_dir), preprocess=False)
 
 
-def repl() -> None:
-    repo = Repo()
+def repl(repo: Repo | None = None) -> None:
+    if repo is None:
+        repo = Repo()
     buffer: list[str] = []
 
     while True:
@@ -75,6 +76,12 @@ def repl() -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     arg_parser = argparse.ArgumentParser(prog="gitscript", description="Run GitScript programs.")
+    arg_parser.add_argument(
+        "-i",
+        "--interactive",
+        action="store_true",
+        help="Enter REPL mode after running the script.",
+    )
     arg_parser.add_argument("filename", nargs="?", help="GitScript file to run. Starts a REPL when omitted.")
     args = arg_parser.parse_args(argv)
 
@@ -83,10 +90,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     try:
-        run_file(args.filename)
+        repo = run_file(args.filename, restore_worktree=not args.interactive)
     except (OSError, ParseError, PreprocessError, RuntimeError, ValueError) as exc:
         print(_format_error(exc), file=sys.stderr, flush=True)
         return 1
+
+    if args.interactive:
+        repl(repo)
 
     return 0
 

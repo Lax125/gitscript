@@ -42,6 +42,14 @@ Start the REPL by running `gitscript` with no filename:
 gitscript
 ```
 
+Run a file and then keep exploring the resulting repository in the REPL:
+
+```sh
+gitscript -i ./examples/hello_world.gs
+```
+
+In `-i` mode, relative `git pull` and `git clone` paths in the REPL continue to resolve from the script's directory.
+
 Inside the REPL, type GitScript commands one at a time. Use `quit` or `exit` to leave.
 
 ---

@@ -11,6 +11,7 @@ def preprocess_file(
         filename: str,
         stack: list[Path] | None = None,
         original_worktree: str | Path | None = None,
+        restore_worktree: bool = True,
 ) -> tuple[str, Path]:
     path = Path(filename).resolve()
     original = Path.cwd() if original_worktree is None else Path(original_worktree).resolve()
@@ -25,11 +26,10 @@ def preprocess_file(
         raise PreprocessError(str(exc)) from exc
 
     preprocessed = preprocess_source(source, path.parent, [*stack, path])
-    wrapped = "\n".join([
-        _worktree_config(path.parent),
-        preprocessed,
-        _worktree_config(original),
-    ])
+    lines = [_worktree_config(path.parent), preprocessed]
+    if restore_worktree:
+        lines.append(_worktree_config(original))
+    wrapped = "\n".join(lines)
     return wrapped, path.parent
 
 

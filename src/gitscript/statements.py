@@ -16,7 +16,7 @@ from gitscript.repo import CommitBinding, Repo, RefBinding, protect_binding
 try:
     # noinspection PyUnresolvedReferences,PyUnusedImports
     if sys.platform != "win32":
-        import readline  # Capture arrow keys on linux
+        import pyreadline3  # Capture arrow keys on linux
 except ImportError:
     pass
 
