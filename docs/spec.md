@@ -1,6 +1,183 @@
 # GitScript Language Specification
 
-## Commit References
+GitScript is a small language whose runtime is shaped like a Git repository. A
+program does not store variables in ordinary slots. It stores integers in
+commits, names those commits with branches and tags, and uses history traversal
+as its addressing system.
+
+## Runtime Memory Model
+
+### Commits
+
+A commit is the unit of memory.
+
+Each commit stores:
+
+* an integer value
+* a parent commit, except for root commits
+* a creation number used to sort history from newest to oldest
+
+Commit values can be read as integers or as Unicode codepoints. String commands
+are implemented by creating one commit per character.
+
+```mermaid
+flowchart RL
+    C2["commit #2\nvalue=105\nchar='i'"] --> C1["commit #1\nvalue=104\nchar='h'"]
+    C1 --> C0["commit #0\nvalue=0\nchar='\\0'"]
+```
+
+The parent link gives GitScript its stack-like flavor. `HEAD~1` means the parent
+of the current commit. `HEAD~5` means the fifth ancestor. `HEAD~other` uses the
+integer value of `other` as the depth.
+
+### Branches, Tags, and HEAD
+
+Branches and tags are references to commits.
+
+* A branch is mutable. Commands such as `git commit`, `git reset`, and
+  `git rebase` move branches.
+* A tag is a named reference to a commit.
+* `HEAD` is not a branch name. It always means the tip of the current branch.
+
+The global repository starts with a root commit and a protected `main` branch.
+
+```mermaid
+flowchart RL
+    C1["commit #1\nvalue=7"] --> C0["root commit\nvalue=0"]
+    main["branch: main\nprotected\nHEAD"] --> C1
+    saved["tag: saved"] --> C0
+```
+
+### Execution Frames
+
+Global code runs in the global frame. A function call creates a new frame.
+
+Each frame owns:
+
+* local branches
+* local tags
+* parameter bindings
+* scoped debug config values
+
+Function frames inherit the caller's commit and merge verbosity values, then can
+change them locally without changing the caller.
+
+The name `main` is special:
+
+* at global scope, `main` is the initial protected branch
+* inside a function, `main` is a protected binding to the caller's current branch
+
+This makes the caller's active branch available to a function without letting the
+function delete it.
+
+```mermaid
+flowchart TB
+    subgraph Caller["caller frame"]
+        Feature["branch: feature\ncurrent branch"]
+        Result["branch: result"]
+    end
+
+    subgraph Callee["function frame"]
+        Main["main !\nbinds caller:feature"]
+        Output["output\nbinds caller:result"]
+        Scratch["scratch\nlocal branch"]
+    end
+
+    Main -.-> Feature
+    Output -.-> Result
+```
+
+When a function returns normally or exits with `exit`, its local branches and
+tags disappear. Branches and tags in caller frames are visible only when passed
+as parameters, except for the caller's current branch through `main`.
+
+### Alias Contexts and Imports
+
+Functions and shortforms share an alias namespace. A file also has an import
+context, built from local alias definitions and explicit `git pull` statements.
+Only the last definition of each alias in that file matters.
+
+Files expose aliases with `git push`. Pulling from a file imports only pushed
+aliases, and only aliases requested by name.
+
+```mermaid
+flowchart LR
+    App["app.gs\npull sort_words"] --> Lib["words.gs\npush sort_words"]
+    Lib --> Util["compare.gs\npush compare"]
+```
+
+The loader caches aliases by source file and builds a dependency DAG. If loading
+a file would create an import cycle, loading fails.
+
+## Lexical Basics
+
+### Identifiers
+
+Branch names, tag names, alias names, labels, and parameter names are
+identifiers.
+
+Valid identifiers:
+
+* contain only `A-Z`, `a-z`, `0-9`, `-`, `_`, and `/`
+* do not start with `-`
+* are not `HEAD`
+* are not GitScript keywords, separators, ref operators, merge conditions, or
+  cherry-pick strategies
+
+For example, `git`, `commit`, `merge`, `is`, and `max` are not valid
+identifiers.
+
+The name `main` can be passed as a protected branch argument, but it cannot be
+used as a parameter name.
+
+### Integer Literals
+
+Integer literals are decimal integers.
+
+`true` and `false` are integer literals:
+
+* `true` = `1`
+* `false` = `0`
+
+### String Literals
+
+Double-quoted strings use ordinary escaping.
+
+Triple-quoted strings are literal multiline strings:
+
+```gitscript
+git commit -m """this is a multiline string
+and " does not need to be escaped"""
+
+git commit -m """
+this one includes the surrounding newlines
+"""
+```
+
+Triple-quoted strings:
+
+* may span multiple source lines
+* may contain unescaped `"` characters
+* may contain `&&` and `||` without creating statement separators
+* may be written after `-m` or `-m=`
+
+The string contains exactly the characters between the opening and closing
+`"""`.
+
+### Comments and Separators
+
+Comments and whitespace are discarded by the lexer, except for newlines separate
+statements.
+
+In order of precedence, statement separators are:
+
+* newline
+* `&&`
+* `||`
+
+## Addressing History
+
+### Commit References
 
 ```text
 <commit-ref> =
@@ -13,44 +190,37 @@
   | (<commit-ref>)
 ```
 
-### Semantics
+Semantics:
 
-* `HEAD` refers to the current branch's tip
-* `<branch-name>` refers to that branch's tip
-* `<tag-name>` refers to the commit at the specified tag
-* `~n` moves `n` commits backwards
-* `<ref>^` is syntactic sugar for `<ref>~1`
-* `<ref>~n` is a runtime error if `<ref>` has fewer than `n` ancestors
-* `<ref>~<ref>`:
+* `HEAD` is the current branch tip
+* a branch name is that branch's tip
+* a tag name is the tagged commit
+* `<ref>~N` moves `N` ancestors backward
+* `<ref>^` is sugar for `<ref>~1`
+* `<ref>~N` is a runtime error if the commit has fewer than `N` ancestors
+* `<ref>~<other-ref>` evaluates `other-ref` to an integer depth, then moves that
+  many ancestors backward
+* `~` associates right-to-left
 
-  * evaluate RHS to get its value `n`
-  * then compute `<ref>~n`
-* `~` associates **right-to-left**
-
-### Example
+Example:
 
 ```gitscript
 HEAD~(foo~1)
 ```
 
----
+### Chaotic Addressing
 
-## Identifiers
+Because a commit value can become a history depth, addresses can be computed from
+other addresses:
 
-Branch names, tag names, alias names, and parameter names are intentionally simpler than real Git refs.
+```gitscript
+HEAD~(spaces~3)
+```
 
-Valid names:
+This supports dynamic indexing, pointer-like structures, and deliberately
+chaotic access patterns.
 
-* may contain only `A-Z`, `a-z`, `0-9`, `-`, `_`, and `/`
-* may not start with `-`
-* may not be `HEAD`, because `HEAD` always means the current branch tip
-* may not be a GitScript keyword, operator, merge condition, or cherry-pick strategy
-
-For example, `git`, `commit`, `merge`, `is`, and `max` are not valid branch or tag names.
-
----
-
-## Commit Ranges
+### Commit Selectors
 
 ```text
 <commit-range> = <commit-ref>..<commit-ref>
@@ -58,56 +228,30 @@ For example, `git`, `commit`, `merge`, `is`, and `max` are not valid branch or t
 <commit-selector> = <commit-ref> | <commit-range> | <symdiff-range>
 ```
 
-### Semantics
+`A..B` selects every commit reachable from `B`, including `B`, except commits
+reachable from `A`. If `A` and `B` are the same commit, the range is empty.
 
-`A..B` refers to all commits reachable from `B` (including `B`) but not reachable from `A`.
+`A...B` selects the symmetric difference: commits reachable from either side,
+excluding commits reachable from both sides.
 
-* If `A == B`, the range is empty
+Commands that take history selectors can take multiple selectors. The selected
+set is computed as follows:
 
-`A...B` refers to the symmetric difference between `A` and `B`:
+1. For `git log` and `git rev-list`, a plain `<commit-ref>` includes every
+   commit reachable from that ref.
+2. For `git cherry-pick` and `git revert`, a plain `<commit-ref>` includes only
+   that one commit.
+3. `A..B` includes commits reachable from `B`.
+4. `A..B` excludes commits reachable from `A`.
+5. `A...B` includes commits reachable from either side.
+6. `A...B` excludes commits reachable from both sides.
+7. Exclusions win over ordinary selector inclusions.
+8. For commands that support `--all`, `--all` includes every commit reachable
+   from any ref visible in the current frame and overrides range exclusions.
 
-* include all commits reachable from `A`
-* include all commits reachable from `B`
-* exclude every commit reachable from both `A` and `B`
+The final set is sorted newest creation first unless a command says otherwise.
 
-### Commit Selection
-
-Commands that accept commit history selectors can take any number of `<commit-selector>` arguments. At least one selector must be specified unless the command supports and uses `--all`.
-
-The selected set is computed with Git-like inclusion and exclusion rules:
-
-1. For `git log` and `git rev-list`, every `<commit-ref>` selector includes all commits reachable from that resolved commit.
-2. For `git cherry-pick` and `git revert`, every `<commit-ref>` selector includes only that resolved commit.
-3. Every `A..B` selector includes all commits reachable from `B`.
-4. Every `A..B` selector excludes all commits reachable from `A`.
-5. Every `A...B` selector includes all commits reachable from either side.
-6. Every `A...B` selector excludes all commits reachable from both sides.
-7. Exclusions win over ordinary selector inclusions, even if an excluded commit was included by an earlier selector.
-
-For commands that support `--all`, `--all` adds all commits reachable from any ref visible in the current execution frame and overrides exclusions from range selectors. This includes:
-
-* visible branches
-* visible tags
-* branch and tag bindings passed into the current frame
-* protected visible branches, including `main`
-* commit parameters passed into the current frame
-
-The final selected set is sorted backwards chronologically: newest commit creation first, oldest commit creation last. GitScript therefore tracks commit creation order as part of commit identity. This order is independent of commit values and is stable even when branches are reset, rebased, or deleted.
-
----
-
-## Integer Literals
-
-Integer literals are decimal integers.
-
-`true` and `false` are also integer literals:
-
-* `true` = `1`
-* `false` = `0`
-
----
-
-## Commands
+## Loading Files and Managing Imports
 
 ### `git init`
 
@@ -115,11 +259,16 @@ Integer literals are decimal integers.
 git init
 ```
 
-Resets the repository to the initial clean state. This removes all branches, tags, commits other than the root commit, aliases, function definitions, and debug configuration.
+`git init` is valid only at global scope. It resets the repository to a clean
+state:
 
-`git init` is valid only at global scope.
+* root commit only
+* protected `main` branch at root
+* no other branches or tags
+* no aliases or functions
+* debug config reset to defaults
 
----
+It does not change `core.worktree`.
 
 ### `git clone`
 
@@ -127,13 +276,24 @@ Resets the repository to the initial clean state. This removes all branches, tag
 git clone <file-path>
 ```
 
-Preprocesses another GitScript file into the current source position. The copied file is prepended with `git init`, so executing the cloned file starts from a clean repository.
+`git clone` is a global-only preprocessor directive. It behaves like pasting
+another GitScript file at the current source position, with `git init` prepended
+to the pasted file.
 
-`git clone` is valid only at global scope. Because it is a preprocessor directive, in REPL mode it behaves as though the user typed `git init` followed by the contents of the target file.
+When used in the REPL, it behaves as though the user typed `git init` followed by
+the target file contents.
 
-GitScript tracks files being expanded and reports an error if cloning would create an infinite cycle, including a cycle back to the initial file being run.
+GitScript tracks files currently being expanded. Cloning fails if it would create
+an infinite cycle, including a cycle back to the initial file.
 
----
+When a cloned file is loaded, GitScript also inserts worktree changes around the
+pasted contents:
+
+```gitscript
+git config core.worktree <directory-of-cloned-file>
+...
+git config core.worktree <previous-worktree>
+```
 
 ### `git pull`
 
@@ -142,25 +302,25 @@ git pull <file-path> <alias-name>...
 git pull <file-path> <local-alias>:<source-alias>...
 ```
 
-Imports pushed alias or function definitions from another GitScript file. Non-alias-defining statements in the pulled file are not executed.
+`git pull` is valid only at global scope. It imports pushed aliases and functions
+from another file. It does not execute non-alias statements from that file.
 
-`git pull` is only valid in global scope.
+At least one alias name is required. There is no import-all form.
 
-At least one alias name must be specified. `git pull` never imports all aliases by default.
+Every requested source alias must:
 
-Each file has one alias context for imports. Both `git pull` and local `git config alias.<name>` definitions write into that context. If the same alias name appears multiple times, the last `git pull` or local definition in the file wins for that file.
+* exist in the pulled file's final alias context
+* be exposed by `git push` in that file
 
-Each requested source alias must be exposed by `git push` in the pulled file and must exist in that file's final alias context. Otherwise, `git pull` raises an error.
+`local:source` imports `source` under the local name `local`.
 
-`<local-alias>:<source-alias>` imports the source alias under a different local name.
+Imports are dynamic and cached by file. Loading a file resolves that file's own
+imports first, rewrites alias usages in loaded definitions to qualified internal
+dependencies, caches the final definitions, and reuses that cache for later
+imports. These dependency aliases do not pollute the importing file's visible
+alias namespace.
 
-Imports are dynamically loaded and cached by file. Importing an alias first loads the target file, resolves that file's own explicit imports, builds the file's final alias context, rewrites alias usages inside loaded definitions so they refer to the specific loaded dependency, and caches the result. Later imports from the same file reuse the cached definitions.
-
-Loaded dependency aliases are hidden behind qualified internal names. If `foo.gs` imports `bar` from `bar.gs`, then a function imported from `foo.gs` can call its `bar` dependency without exposing `bar` in the importing program's alias namespace.
-
-The import loader tracks file dependencies as a DAG. If loading a file would create a cycle, import fails.
-
----
+`git pull` participates in a file dependency DAG. A cycle is an error.
 
 ### `git push`
 
@@ -168,122 +328,309 @@ The import loader tracks file dependencies as a DAG. If loading a file would cre
 git push [<alias-name>]...
 ```
 
-Exposes aliases or functions from the current file's final alias context for `git pull`.
+`git push` exposes aliases or functions from the current file's final alias
+context so other files can import them with `git pull`.
 
-`git push` is only meaningful to the import loader. When a file is run directly, it has no effect beyond requiring global scope.
+It is only meaningful to the import loader. When a file is run directly, it has
+no runtime effect beyond requiring global scope.
 
-Pushed aliases must exist in the file's final alias context. Since `git pull` contributes to that context, a file can pass through an imported alias:
+Pushed aliases must exist in the final alias context. Since `git pull`
+contributes to that context, pass-through imports are valid:
 
 ```gitscript
 git pull lib.gs my_alias
 git push my_alias
 ```
 
-### `git branch`
+### `git config core.worktree`
+
+```gitscript
+git config core.worktree <path>
+```
+
+`core.worktree` is the directory used to resolve relative paths for `git pull`
+and `git clone`. It is valid only at global scope.
+
+When a file starts loading through the command-line entrypoint, `git pull`, or
+`git clone`, GitScript temporarily sets `core.worktree` to that file's directory
+and restores the previous value when the file finishes loading.
+
+## Mutating Repository Memory
+
+### `git commit`
+
+```gitscript
+git commit [--amend] [<int>]
+git commit -m [<string>]
+```
+
+Integer commit mode:
+
+* creates one commit with the integer value
+* reads an integer literal from stdin if the value is omitted
+* supports `--amend`, which uses the current commit's parent as the new parent
+
+String commit mode:
+
+* selected by `-m`, with or without `=`
+* reads a single-line string from stdin if the string is omitted
+* creates one commit per character
+* stores characters in reverse order, so the last character is closest to `HEAD`
+* does not allow `--amend`
+
+```mermaid
+flowchart RL
+    Before["before\nmain -> A"] --> Root["root"]
+    After["after git commit 7\nmain -> B(value=7)"] --> Before
+```
+
+### Branches and Checkout
 
 ```gitscript
 git branch
 git branch <name> [<commit-ref>]
+git branch -d [<branch-name>]...
+git checkout <branch-name>
+git checkout -b <branch-name> [<commit-ref>]
 ```
 
-With no arguments, lists branches visible in the current execution frame.
+`git branch <name>` creates a branch at the specified commit, or at `HEAD` if no
+commit is specified.
 
-With arguments, creates a new branch.
+`git checkout <branch>` makes a branch current.
 
-* If a commit is specified, the branch points there
-* Otherwise, it points to the current commit
+`git checkout -b <branch>` creates the branch first, then checks it out.
 
-#### Listing Branches
+`git branch -d` deletes branches. Protected branches cannot be deleted.
 
-`git branch` prints one line per visible branch.
+With no arguments, `git branch` prints visible branches for diagnostics.
 
-The listing includes:
+Branch listing rules:
 
-* branches owned by the current frame
-* branch bindings explicitly passed into the current frame
-* the protected `main` binding inside a function frame
+* the current branch is prefixed with `*`
+* protected branches are marked with `!`
+* bindings to caller frames are shown with `->`
+* branches are sorted by `(main?, bound?, protected?, name)`
+* invisible branches are not listed
 
-Branches not visible in the current frame are not listed.
-
-The current branch is marked with `*` in the first column, matching Git. Non-current branches use a space in that column.
-
-Protected branches are marked with `!` after the branch name. A protected branch cannot be deleted in the current frame. This includes global `main`, function-frame `main`, and branches passed through `-p`.
-
-Branch bindings are shown with `->`. The left side is the name visible in the current frame, and the right side describes the branch in the caller frame that it binds to. Bindings can point through multiple caller frames; each layer is shown from inner to outer.
-
-Example at global scope:
+Example global output:
 
 ```text
    main !
  * feature
 ```
 
-Example inside a function called from branch `feature`, with an unprotected `-b output`, protected `-p owner`, and `main` bound to the caller's current branch:
+Example function output:
 
 ```text
    main! -> caller:feature
- * scratch
-   output -> caller:result
    owner! -> caller:main
+   output -> caller:result
+ * scratch
 ```
 
-Example inside nested function calls:
-
-```text
-   main! -> caller:worker -> caller:feature
-   target -> caller:output -> caller:result
-```
-
-The exact caller labels are diagnostic text only. The semantic requirements are that the listing identifies whether a visible branch is protected and whether it is a binding to a branch outside the current frame.
-
----
-
-### `git branch -d`
-
-```gitscript
-git branch -d [<branch-name>]...
-```
-
-Deletes the specified branches.
-
----
-
-### `git tag`
+### Tags
 
 ```gitscript
 git tag
 git tag <name> [<commit-ref>]
-```
-
-With no arguments, prints the visible tags for debugging. Bound tags are printed first, then tags are sorted alphabetically. Each line shows the tag name, any caller binding chain, the commit number, the commit integer value, and the commit character value.
-
-With a name, creates a named reference to the current commit.
-
-If a commit is specified, the tag points there. Otherwise, it points to the current commit.
-
----
-
-### `git tag -d`
-
-```gitscript
 git tag -d [<tag-name>]...
 ```
 
-Deletes the specified tags.
+`git tag <name>` creates a tag at the specified commit, or at `HEAD` if no commit
+is specified.
 
----
+`git tag -d` deletes tags.
 
-### `git checkout`
+With no arguments, `git tag` prints visible tags for diagnostics. Bound tags are
+printed first, then tags are sorted alphabetically. Each line shows:
+
+* the tag name
+* any caller binding chain
+* the commit creation number
+* the commit integer value
+* the commit character value
+
+### Reset
 
 ```gitscript
-git checkout <branch-name>
-git checkout -b <branch-name> [<commit-ref>]
+git reset <commit-ref>
 ```
 
-* Switch active branch
-* `-b` creates the branch first
+`git reset` moves the current branch to the specified commit.
 
----
+```mermaid
+flowchart RL
+    C2["C2\nold HEAD"] --> C1["C1\nnew HEAD"]
+    C1 --> C0["root"]
+    main["main after reset"] --> C1
+```
+
+### Cherry-Pick
+
+```gitscript
+git cherry-pick <commit-selector> [<commit-selector>]... [-s <strategy>]
+```
+
+`git cherry-pick` creates new commits from selected commits. `--all` is not
+supported.
+
+The selected set is replayed oldest to newest. The default strategy is `theirs`.
+
+Strategy inputs:
+
+* `ours` is the current `HEAD` value
+* `theirs` is the next selected commit value
+
+Strategies:
+
+* value selection: `theirs`, `ours`, `min`, `max`
+* arithmetic: `add`, `sub`, `mul`, `div`, `mod`
+* comparison, returning `0` or `1`: `gt`, `lt`, `gte`, `lte`, `eq`, `neq`
+
+For a range, the strategy acts as a reduction. Cherry-picking values `[1, 2, 3]`
+onto a current value of `5` with `-s=add` creates `[6, 8, 11]`.
+
+```mermaid
+flowchart RL
+    S3["source value 3"] --> S2["source value 2"] --> S1["source value 1"]
+    T2["new value 8"] --> T1["new value 6"] --> Base["base value 5"]
+    S2 -. "pick add" .-> T2
+    S1 -. "pick add" .-> T1
+```
+
+Division and modulo by zero are runtime errors.
+
+### Revert
+
+```gitscript
+git revert <commit-selector> [<commit-selector>]...
+```
+
+`git revert` appends one commit per selected commit, using the negated value of
+that selected commit. `--all` is not supported.
+
+The selected set is iterated newest to oldest.
+
+### Rebase
+
+```gitscript
+git rebase <commit-ref>
+```
+
+`git rebase` replays commits from the current branch onto the target commit.
+Every commit on the current branch that is not reachable from the target is
+recreated, preserving values but giving the replayed commits new identities and
+new creation numbers.
+
+```mermaid
+flowchart TB
+    subgraph Before["before"]
+        B2["B2"] --> B1["B1"] --> Base1["base"]
+        T1["target"] --> Base1
+        Current1["current branch"] --> B2
+    end
+
+    subgraph After["after git rebase target"]
+        NB2["B2'"] --> NB1["B1'"] --> T2["target"] --> Base2["base"]
+        Current2["current branch"] --> NB2
+    end
+```
+
+After ref movement operations such as `reset` and `rebase`, unreachable commits
+are eligible for GitScript garbage collection.
+
+## Observing Repository Memory
+
+Diagnostic output is decorated with ANSI color where supported. Branch names,
+tag names, parameter names, commit values, and config headings use consistent
+color categories. Program output from `git show`, normal `git log`, and
+`git rev-list` remains usable as program output.
+
+### `git show`
+
+```gitscript
+git show [<commit-ref>]
+```
+
+Prints the integer value of a commit. The default ref is `HEAD`.
+
+### `git log`
+
+```gitscript
+git log [-n <non-negative-int>] [--reverse] [--oneline] [--all] [<commit-selector>]...
+git log [-n <non-negative-int>] [--graph] [--all] [<commit-selector>]...
+```
+
+Without selectors, `git log` uses `HEAD`.
+
+For normal log output, selected commit values are interpreted as characters.
+
+Traversal:
+
+* default: newest to oldest
+* `--reverse`: oldest to newest
+
+`-n` limits output after sorting and after `--reverse` is applied.
+
+By default, `git log` prints a trailing newline. `--oneline` omits it, which is
+useful for prompts before `git commit` and `git commit -m` read stdin.
+
+### `git log --graph`
+
+`--graph` prints a diagnostic ancestry graph instead of character output.
+
+It is incompatible with:
+
+* `--oneline`
+* `--reverse`
+
+It accepts `-n`, `--all`, and commit selectors.
+
+Each graph line represents one selected commit and shows:
+
+* a box-drawing ancestry graph for visible selected commits
+* whether the commit is current `HEAD`
+* visible branches pointing at the commit
+* visible tags pointing at the commit
+* commit parameters pointing at the commit
+* the commit creation number
+* the integer value
+* the character value, escaped for line-oriented display
+
+Refs outside the current frame are not shown. Function-local refs that have gone
+out of scope are not shown. Commit parameters are shown because `-c` parameters
+bind concrete commits at call time.
+
+Graph layout rules:
+
+* once history branches, that line of commits is drawn in a separate column
+* GitScript uses the first free column to the left, or creates a new left column
+* unrelated selected histories are drawn in separate columns
+* the exact connector layout is implementation-defined but stable for a selected
+  set and creation history
+
+Example shape:
+
+```text
+* 5 value=5 char='\x05' [HEAD -> b]
+┃ * 4 value=4 char='\x04' [branch:main !]
+┃ ┃ * 3 value=3 char='\x03' [branch:a]
+┣━┿━* 2 value=2 char='\x02'
+┣━* 1 value=1 char='\x01'
+* 0 value=0 char='\0' [tag:root]
+```
+
+### `git rev-list`
+
+```gitscript
+git rev-list [-n <non-negative-int>] [--reverse] [--all] [<commit-selector>]...
+```
+
+Prints selected commit values as integers, one per line. Without selectors,
+`git rev-list` uses `HEAD`.
+
+`-n` limits output after sorting and after `--reverse` is applied.
 
 ### `git config`
 
@@ -296,367 +643,139 @@ git config merge.verbosity 2
 git config core.worktree <path>
 ```
 
-Configures debug logging and file-loading behavior.
+With no arguments, `git config` prints visible configuration for diagnostics:
 
-With no arguments, `git config` prints all currently visible configuration for debugging. This includes `commit.verbose`, `merge.verbosity`, `core.worktree`, visible shortforms, and visible functions. Shortforms are listed by name. Functions are listed by name plus each parameter's type and name. Internal imported dependency aliases are not shown.
+* `commit.verbose`
+* `merge.verbosity`
+* `core.worktree`
+* visible shortforms, listed by name
+* visible functions, listed by name and parameter types
 
-Debug logs are diagnostic output and are written separately from program output so commands like `git log`, `git show`, and `git rev-list` remain usable as program output.
+Internal imported dependency aliases are not shown.
 
-#### `commit.verbose`
+`commit.verbose` and `merge.verbosity` are scoped to the current execution frame.
+Function calls inherit the caller's current values, then isolate changes.
 
-Default: `0`
+`commit.verbose` defaults to `0`. When nonzero, every new commit is logged,
+including commits created by string commits, cherry-pick, revert, rebase, and
+amend.
 
-This value is scoped to the current execution frame. Function calls inherit the caller's current value, and changes inside a function do not affect the caller.
-
-When `commit.verbose` is nonzero, GitScript logs every new commit created by any process, including:
-
-* `git commit`
-* string commits, once per character commit
-* `git cherry-pick`
-* `git cherry-pick <commit-range>`, once per replayed commit
-* `git revert`
-* `git revert <commit-range>`, once per replayed commit
-* `git rebase`, once per replayed commit
-
-`git commit --amend` logs the replacement commit that is created.
-
-Operations that only move references, such as `git reset`, `git branch`, `git checkout`, and `git tag`, do not create commits and therefore do not emit commit logs.
-
-Each commit log entry includes enough information to identify:
-
-* the active branch receiving the new commit
-* the new commit's value
-* the new commit's parent value, or that it has no parent
-* the operation that created it
-
-#### `merge.verbosity`
-
-Default: `0`
-
-This value is scoped to the current execution frame. Function calls inherit the caller's current value, and changes inside a function do not affect the caller.
-
-Merge verbosity controls debug logging for merge-conflict control flow:
+`merge.verbosity` defaults to `0`:
 
 * `0`: no merge debug logging
-* `1`: log when a merge block begins evaluating and log each conditional check
-* `2`: log everything from `1`, plus merge continues and aborts
+* `1`: log merge block entry and conditional checks
+* `2`: log everything from `1`, plus continues and aborts
 
-At verbosity `1`, each conditional-check log includes:
+## Control Flow
 
-* the merge label, if present
-* the condition
-* the two resolved commit values
-* whether the top or bottom block was selected
-
-At verbosity `2`, continue and abort logs include:
-
-* whether the signal is `continue` or `abort`
-* the target label, if present
-* the merge block that handles the signal
-
-#### `core.worktree`
-
-Default: the process working directory.
-
-`core.worktree` is the directory used to resolve relative paths for `git pull` and `git clone`.
-
-When a GitScript file starts loading through the `gitscript` command, `git pull`, or `git clone`, GitScript temporarily sets `core.worktree` to the loaded file's directory. When that file finishes loading, GitScript restores the previous worktree.
-
-For `git clone`, those worktree changes are inserted into the preprocessed source around the cloned file contents, along with the existing `git init`.
-
-For `git pull`, worktree changes are handled by the import loader as part of the file's ordered import context, so further imports in a loaded file resolve relative to that file unless the file changes `core.worktree` itself.
-
-`git init` resets repository state and debug settings, but it does not change `core.worktree`.
-
-`git config core.worktree <path>` is valid only at global scope.
-
----
-
-### `git commit` (integer)
-
-```gitscript
-git commit [--amend] [<int>]
-```
-
-* Creates a new commit with an integer value
-* If the integer is omitted, reads an integer literal from stdin
-* `--amend` uses the current commit's parent
-* `-m` is not used for integer commits
-
----
-
-### `git commit -m` (string input)
-
-```gitscript
-git commit -m
-```
-
-* Reads a single-line string from stdin
-* Stores it as a sequence of commits (one per character)
-* Characters are stored in **reverse order** (last character closest to HEAD)
-* `--amend` is not allowed for string commits
-* `-m` always selects string commit mode
-
----
-
-### `git commit -m "string"`
-
-Same as above, but inline. A string value can also be supplied with `-m=`.
-
----
-
-### `git commit -m """string"""`
-
-```gitscript
-git commit -m """this is a multiline string
-and " does not need to be escaped"""
-
-git commit -m """
-this is also a multiline string
-but with a newline at the start and at the end
-"""
-```
-
-Stores a literal multiline string as a sequence of commits, one per character.
-
-Triple-quoted strings:
-
-* may span multiple source lines
-* may contain unescaped `"` characters
-* may contain `&&` without creating statement separators
-* may be written with `-m """..."""` or `-m="""..."""`
-* do not allow `--amend`
-
-The string contains exactly the characters between the opening and closing `"""`.
-
----
-
-### `git reset`
-
-```gitscript
-git reset <commit-ref>
-```
-
-Moves the current branch to the specified commit.
-
----
-
-### `git cherry-pick`
-
-```gitscript
-git cherry-pick <commit-selector> [<commit-selector>]... [-s <strategy>]
-```
-
-Creates new commits from existing commits.
-
-At least one selector is required. `--all` is not supported.
-
-The selectors are resolved using the commit selection rules. The final selected set is replayed **from oldest to newest**, so the newest-to-oldest selection order is reversed for replay.
-
-* `<commit-ref>`: creates a new commit using the referenced commit and the selected strategy
-* range selectors replay all commits in the selected set
-
-Strategies combine:
-
-* **ours** = current `HEAD` value
-* **theirs** = the next referenced commit value
-
-For a range with a strategy, the strategy is applied as a reduction. Each new commit becomes the next `ours` value.
-
-Example: cherry-picking values `[1, 2, 3]` onto a current value of `5` with `-s=add` creates commits `[6, 8, 11]`.
-
-#### Value Selection
-
-* `theirs` (default): commit `theirs`
-* `ours`: commit `ours`
-* `min`: commit the lesser of `ours` and `theirs`
-* `max`: commit the greater of `ours` and `theirs`
-
-#### Arithmetic
-
-* `add`
-* `sub`
-* `mul`
-* `div` (integer division)
-* `mod`
-
-#### Comparison (returns `0` or `1`)
-
-* `gt`
-* `lt`
-* `gte`
-* `lte`
-* `eq`
-* `neq`
-
----
-
-### `git merge`
+### Merge-Conflict Blocks
 
 ```gitscript
 git merge [-s <condition>] [<label>]
+<<<<<<< <commit-ref>
+    ...
+=======
+    ...
+>>>>>>> <commit-ref>
+```
+Note: Merge conflict markers and their commit refs must stay on their own lines, mimicking the appearance of actual
+merge conflicts. Indentation on these lines is, however, acceptable.
+
+`git merge` starts a control-flow block. The conflict markers provide the two
+commit refs being compared.
+
+Conditions:
+
+* `gt`: first value is greater than second value
+* `lt`: first value is less than second value
+* `gte`: first value is greater than or equal to second value
+* `lte`: first value is less than or equal to second value
+* `eq`: first value equals second value
+* `neq`: first value does not equal second value
+* `is`: both refs resolve to the exact same commit object
+
+The default condition is `eq`.
+
+Execution:
+
+1. Evaluate both marker refs.
+2. If the condition is true, run the top block.
+3. Otherwise, run the bottom block.
+4. Reaching the end of the selected block exits the merge statement.
+
+```mermaid
+flowchart TB
+    Start["git merge -s condition label"] --> Check["condition(A, B)?"]
+    Check -- true --> Top["run top block"]
+    Check -- false --> Bottom["run bottom block"]
+    Top --> Done["after merge block"]
+    Bottom --> Done
+    Top -. "git merge --continue" .-> Check
+    Bottom -. "git merge --continue" .-> Check
+    Top -. "git merge --abort" .-> Done
+    Bottom -. "git merge --abort" .-> Done
+```
+
+```gitscript
 git merge --continue [<label>]
 git merge --abort [<label>]
 ```
 
-Controls merge-conflict blocks.
+`git merge --continue` jumps back to the start of the current merge block.
+`git merge --abort` skips to the end of the current merge block.
 
-`git merge` starts the following merge-conflict block. `-s` selects the condition used to choose between the two sides.
+With a label, continue or abort targets the matching outer merge block, which
+allows nested control flow to jump to an enclosing loop.
 
-The optional positional `<label>` names the merge block. This uses the argument position that real Git uses for the commit being merged.
+### Statement Composition
 
-If no condition is specified, the condition is `eq`.
-
-#### Conditions
-
-Conditions are separate from value-combining cherry-pick strategies:
-
-* `gt`: first commit value is greater than second commit value
-* `lt`: first commit value is less than second commit value
-* `gte`: first commit value is greater than or equal to second commit value
-* `lte`: first commit value is less than or equal to second commit value
-* `eq`: first commit value equals second commit value
-* `neq`: first commit value does not equal second commit value
-* `is`: both commit references resolve to the exact same commit object
-
-#### Execution
+Anonymous blocks can appear anywhere a statement can appear:
 
 ```gitscript
-git merge [-s <condition>] [<label>]
-<<<<<<< A
-    ...
-=======
-    ...
->>>>>>> B
+'!
+  git commit 1
+  git show
+'
 ```
 
-1. Evaluate `A` and `B` to commits.
-2. If `A <condition> B` is true, run the top block.
-3. Otherwise, run the bottom block.
-4. Reaching the end of the selected block exits the control structure.
-5. `git merge --continue` jumps back to step 1 of the current control structure.
-6. `git merge --abort` skips to the end of the current control structure immediately.
-7. `git merge --continue <label>` jumps back to the matching labeled merge block, even through nested merge blocks.
-8. `git merge --abort <label>` skips to the end of the matching labeled merge block, even through nested merge blocks.
+The block starts with `'!` and ends at the matching single quote. Blocks can be
+nested. A single quote inside a string literal does not close the block.
 
-This makes loops explicit: use `git merge --continue` when a selected side will repeat. One-shot conditional behavior is the default because falling out of a side exits.
+Anonymous blocks execute immediately in the current frame. They do not create
+function frames or local branch/tag scope.
 
----
-
-### `git revert`
+`&&` sequences statements on one physical line:
 
 ```gitscript
-git revert <commit-selector> [<commit-selector>]...
+git commit 1 && git show
 ```
 
-At least one selector is required. `--all` is not supported.
+The right side runs only if the left side succeeds.
 
-The selectors are resolved using the commit selection rules. The final selected set is iterated from newest to oldest.
-
-For each selected commit, `git revert` appends a commit with the **negated value**.
-
----
-
-### `git rebase`
+`||` runs the right side only if the left side fails with a GitScript error:
 
 ```gitscript
-git rebase <commit-ref>
+git commit || git commit 0
 ```
 
-Replays commits from the current branch onto the target commit.
+`||` catches runtime errors such as invalid integer input, missing refs, missing
+ancestors, type errors in function arguments, division by zero, and errors raised
+while defining a function body. It does not catch parse errors that prevent the
+enclosing block from being parsed.
 
-* Only values are replayed
-* Original control flow is not preserved
+`exit`, `git merge --continue`, and `git merge --abort` are control-flow signals,
+not errors, so `||` does not catch them.
 
----
+Precedence, from strongest to weakest:
 
-### `git show`
+1. anonymous block: `'!...'`
+2. sequencing: `&&`
+3. error recovery: `||`
+4. newline separation
 
-```gitscript
-git show [<commit-ref>]
-```
-
-Prints the value of a commit (default: `HEAD`).
-
----
-
-### `git log`
-
-```gitscript
-git log [-n <non-negative-int>] [--reverse] [--oneline] [--all] [<commit-selector>]...
-git log [-n <non-negative-int>] [--graph] [--all] [<commit-selector>]...
-```
-
-Prints characters from commits.
-
-The selectors are resolved using the commit selection rules. If no selector is supplied, `git log` uses `HEAD`.
-
-Traversal is:
-
-* default: newest to oldest
-* `--reverse`: oldest to newest
-
-`-n` limits the output after the selection has been sorted and after `--reverse` has been applied.
-
-By default, `git log` prints a trailing newline after the characters. `--oneline` omits that trailing newline, which is useful for prompts before `git commit` and `git commit -m` read from stdin.
-
-Each commit value is interpreted as a character.
-
-#### `git log --graph`
-
-`--graph` prints the selected commits as a diagnostic ancestry graph instead of printing commit values as characters.
-
-`--graph` is incompatible with:
-
-* `--oneline`
-* `--reverse`
-
-`--graph` still accepts `-n`, `--all`, and any number of commit selectors.
-
-Each graph line represents one selected commit. The line includes:
-
-* a box-drawing ancestry graph showing the parent relationship between visible selected commits
-* a marker for the current `HEAD` commit
-* every visible branch that points at that commit
-* every visible tag that points at that commit
-* every commit parameter in the current frame that points at that commit
-* the commit's integer value
-* the character represented by that integer value, using GitScript's normal character printing rules
-
-The character value is shown in a human-readable escaped form so graph output remains line-oriented. For example, newline is shown as `\n` and null is shown as `\0`.
-
-Refs not visible in the current execution frame are not shown. Local function refs that have gone out of scope are not shown. Commit parameters are shown because `-c` parameters are evaluated at function-call time and bind a concrete commit for the callee.
-
-Once history branches, that line of commits is drawn in a separate column. GitScript uses the first free column to the left, or creates a new left column if no free column is available. If selected commits come from unrelated histories, each unrelated history is also drawn in a separate column.
-
-The exact edge layout is implementation-defined, but the graph is stable for a given selected set and creation history. Ref annotations are diagnostic text only; their semantic purpose is to identify what names in the current frame point to each visible commit.
-
-Example shape:
-
-```text
-╤ 5 value=67 char='C' [HEAD -> b]
-│ ╤ 4 value=66 char='B' [branch:main!]
-│ │ ╤ 3 value=65 char='A' [branch:a]
-├─┼─╧ 2 value=2 char='\x02'
-├─╧ 1 value=1 char='\x01'
-╧ 0 value=0 char='\x00' [tag:root]
-```
-
----
-
-### `git rev-list`
-
-```gitscript
-git rev-list [-n <non-negative-int>] [--reverse] [--all] [<commit-selector>]...
-```
-
-Prints commit values (integers), one per line.
-
-The selectors are resolved using the commit selection rules. If no selector is supplied, `git rev-list` uses `HEAD`.
-
-`-n` limits the output after the selection has been sorted and after `--reverse` has been applied.
-
----
+A merge-conflict control structure is one statement for composition purposes.
+The `git merge` line and its matching conflict markers and blocks stay together,
+even though the statement spans multiple lines.
 
 ### `exit`
 
@@ -664,46 +783,24 @@ The selectors are resolved using the commit selection rules. If no selector is s
 exit
 ```
 
-Exits the current execution block early.
+`exit` leaves the current execution block early.
 
-* Inside a function, `exit` returns from that function immediately
-* At global scope, `exit` ends the program immediately
-* Inside a merge-conflict block, `exit` exits the surrounding function if one is active; otherwise it exits the global program
-* `exit` is separate from `git merge --abort`, which exits only merge-conflict control structures
+* inside a function, it returns from that function
+* at global scope, it ends the program
+* inside a merge block, it exits the surrounding function if one exists, or the
+  global program otherwise
 
----
-
-## Control Flow (Merge Conflicts)
-
-GitScript uses merge conflict syntax for control flow:
-
-```gitscript
-git merge [-s <condition>] [<label>]
-<<<<<<< A
-    ...
-=======
-    ...
->>>>>>> B
-```
-
-### Execution Rules
-
-Merge-conflict blocks are controlled by `git merge`.
-
-* `git merge` starts the block and chooses the condition
-* `git merge --continue` repeats the block
-* `git merge --abort` exits the block
-* `git merge --continue <label>` repeats the matching labeled block
-* `git merge --abort <label>` exits the matching labeled block
-* The conflict markers provide the two commit references compared by the condition
-
----
+`exit` is separate from `git merge --abort`, which exits only merge-conflict
+blocks.
 
 ## Functions and Aliases
 
-Functions and shortforms are defined with `git config alias.<name>`. They share one alias namespace. Defining `alias.<name>` replaces any previous shortform or function with that name.
+Functions and shortforms are defined with `git config alias.<name>`. They share
+one alias namespace. Defining the same alias name again replaces the previous
+definition.
 
-Alias and function names use the same name rules as branches and tags.
+Alias definitions are allowed only when executing global code. A function call
+cannot define an alias, and a shortform cannot expand to an alias definition.
 
 ### Shortforms
 
@@ -711,64 +808,18 @@ Alias and function names use the same name rules as branches and tags.
 git config alias.shortform 'statement-fragment'
 ```
 
-Defines a command shortform. After this config statement runs, a command beginning with `git shortform` is parsed as though it began with `git statement-fragment`.
-
+A shortform rewrites `git shortform ...` to `git statement-fragment ...`.
 Arguments after the shortform are appended to the substituted command.
 
-Expanding a shortform must produce exactly one composed statement. It can use anonymous blocks, `&&`, and `||` if the whole expansion is still one statement expression. It cannot expand to multiple newline-separated statements.
+Expansion can happen repeatedly. If the replacement fragment starts with another
+shortform or function name, that name is expanded too.
 
-A shortform expansion cannot define an alias or function.
+The expanded result must be exactly one composed statement. It may contain
+anonymous blocks, `&&`, and `||`, but it cannot expand to multiple
+newline-separated statements.
 
-For example, this definition is accepted:
-
-```gitscript
-git config alias.ci 'commit'
-```
-
-This call expands to one statement:
-
-```gitscript
-git ci 20
-```
-
-This definition is also accepted:
-
-```gitscript
-git config alias.abc 'commit 20 && git show'
-```
-
-Running it expands to one composed statement:
-
-```gitscript
-git abc
-```
-
-The expanded text is equivalent to:
-
-```gitscript
-git commit 20 && git show
-```
-
-Shortform definitions are still not validated when defined. A malformed expansion is reported when the shortform is called.
-
-Example:
-
-```gitscript
-git config alias.cp 'cherry-pick'
-git cp main -s=max
-```
-
-The second line is parsed as:
-
-```gitscript
-git cherry-pick main -s=max
-```
-
-Alias substitution can happen multiple times. If the replacement fragment begins with another shortform or function name, that name is expanded too. The final expanded result must still be one statement.
-
-No validation is performed when the shortform is defined. The fragment does not need to form a valid statement at definition time. It can still expand to a statement that commits a multiline string or to a composed statement using `&&` and `||`.
-
-Alias expansion happens while parsing the command being executed, using aliases that have already been executed. Aliases defined later in the program are not visible earlier in the program.
+Shortforms are not fully validated when defined. Malformed expansions are
+reported when the shortform is called.
 
 ### Functions
 
@@ -776,54 +827,22 @@ Alias expansion happens while parsing the command being executed, using aliases 
 git config alias.function_name [-i <name>]... [-s <name>]... [-l <name>]... [-b <name>]... [-p <name>]... [-t <name>]... [-c <name>]... [-m <name>]... [-o <name>]... '![statement]...'
 ```
 
-Defines a function. A function body is an ordered list of zero or more statements. When `git function_name` is executed, GitScript executes those statements in order.
+A function body is an ordered list of statements. Calling `git function_name`
+executes those statements in a new frame.
 
-The body begins after the `!` and ends at the closing single quote. The first statement can appear on the same line as `git config`, and the last statement can appear on the same line as the closing quote.
-
-Example:
-
-```gitscript
-git config alias.dec '!
-  git cherry-pick one -s=sub
-  git show
-'
-```
-
-This defines `git dec` as a two-statement function.
-
-The same function can also be written with the first and last statements adjacent to the quotes:
-
-```gitscript
-git config alias.dec '!git cherry-pick one -s=sub && git show'
-```
-
-#### Function Body Validation
+The first statement can appear on the same line as `git config`, and the last
+statement can appear on the same line as the closing quote.
 
 Function bodies are syntax-checked when the function is defined.
 
-Function bodies cannot define aliases or functions.
+Function body rules:
 
-Each statement in a function body must:
+* the body cannot define aliases or functions
+* each statement must start with `git`, be `exit`, or be an anonymous block
+* built-in statements must conform to the spec
+* parameter uses must match the declared parameter types
 
-* start with `git`, or
-* be `exit`, or
-* be an anonymous block beginning with `'!`
-
-Built-in `git` statements in a function body must conform to the same syntax as top-level built-in statements. This includes command options, ref syntax, merge conditions, cherry-pick strategies, and multiline string syntax.
-
-Parameter references are checked against the function's declared parameters. A parameter can only be used where its declared type is valid:
-
-* `-i` parameters can be used where integer literals are accepted
-* `-s` parameters can be used where string literals are accepted
-* `-l` parameters can be used where a new branch or tag name is accepted
-* `-b` parameters can be used where an existing unprotected branch name is accepted
-* `-p` parameters can be used where an existing protected branch name is accepted
-* `-t` parameters can be used where an existing tag name is accepted
-* `-c` parameters can be used where commit references are accepted. A commit parameter can appear as one side of a commit range or symmetric difference range, but the parameter itself binds one concrete commit.
-* `-m` parameters can be used where merge conditions are accepted
-* `-o` parameters can be used where cherry-pick strategies are accepted
-
-This validation catches some errors before the function is ever called. For example, deleting a protected branch parameter is invalid:
+This catches errors such as deleting a protected branch parameter:
 
 ```gitscript
 git config alias.bad -p target '!
@@ -831,53 +850,29 @@ git config alias.bad -p target '!
 '
 ```
 
-Function body validation is syntax and type validation only. It does not prove that runtime refs exist, that arithmetic is safe, that loops terminate, or that a valid runtime path reaches every statement.
+Validation does not prove refs exist for every runtime path, that arithmetic is
+safe, or that loops terminate.
 
 ### Parameters
 
-Function definitions can declare named parameters before the function body:
-
-```gitscript
-git config alias.foo -i my_int -s my_string '!
-  git commit my_int
-  git commit -m my_string
-'
-```
-
-Parameter names use the same syntax rules as branch and tag names.
-
-Parameters declared with `-l`, `-b`, `-p`, or `-t` cannot be named `main`.
-
-Function calls provide arguments positionally:
-
-```gitscript
-git foo 3 "hello"
-```
-
-Each call creates one call-stack frame containing the parameter values, local branches, and local tags for that function invocation. Parameter references resolve against the current frame. When the function returns, that frame is removed.
-
-Parameters are referenced by name:
-
-```gitscript
-my_int
-my_string
-```
-
-A parameter reference can appear anywhere a value of that parameter's type is expected.
-
 Parameter types:
 
-* `-i <name>`: integer literal. `true` and `false` are accepted as integer literals with values `1` and `0`
+* `-i <name>`: integer literal
 * `-s <name>`: string literal
-* `-l <name>`: label. The argument must be a valid name that does not currently refer to an existing branch or tag in the caller's frame. This is useful for functions that create branches or tags in the caller's frame.
-* `-b <name>`: existing unprotected branch. The argument must name a branch that exists when the function is called. `main` and the caller's current branch cannot be passed as `-b`.
-* `-p <name>`: existing protected branch. The argument must name a branch that exists when the function is called. `main` and the caller's current branch can be passed as `-p`, and the branch cannot be deleted through the parameter inside the function.
-* `-t <name>`: existing tag. The argument must name a tag that exists when the function is called.
-* `-c <name>`: commit. The argument uses commit-reference syntax at the call site, then resolves immediately to a concrete commit in the caller's frame.
-* `-m <name>`: merge-conflict condition
-* `-o <name>`: cherry-pick integer operator
+* `-l <name>`: new label in the caller frame; the argument must not currently be
+  an existing branch or tag
+* `-b <name>`: existing unprotected branch; cannot be `main` or the caller's
+  current branch
+* `-p <name>`: existing branch, protected inside the callee; may be `main` or the
+  caller's current branch
+* `-t <name>`: existing tag
+* `-c <name>`: commit; the argument is a `<commit-ref>` resolved at call time
+* `-m <name>`: merge condition
+* `-o <name>`: cherry-pick strategy
 
-Example:
+Parameter names use identifier syntax and cannot be `main`.
+
+Parameters are referenced by name wherever a value of that type is expected:
 
 ```gitscript
 git config alias.pick -c source -o strategy '!
@@ -887,86 +882,13 @@ git config alias.pick -c source -o strategy '!
 git pick main max
 ```
 
-The call executes as though the function body contained:
+The `-c` type binds a concrete commit, not a ref expression to be re-evaluated
+later. It can be used anywhere a commit reference is expected, including as one
+side of a range selector.
 
-```gitscript
-git cherry-pick main -s=max
-```
+### Defaults and Named Arguments
 
-Calling a function with the wrong number of positional arguments is a runtime error, unless missing arguments have defaults.
-
-### Branch and Tag Scope
-
-Branches and tags are scoped to the current execution frame.
-
-At global scope, branches and tags are global. Inside a function call, branch and tag names refer only to refs in that function's current call frame, plus any refs explicitly passed into the function.
-
-`main` is a protected branch name.
-
-* At global scope, `main` is the initial branch and cannot be deleted.
-* Inside a function call, `main` is a protected alias for the caller's previous branch, similar to `self` in Python methods.
-* Function-local code can `checkout`, `commit`, `reset`, and otherwise operate on `main` to modify the caller's branch intentionally.
-* A function cannot create, delete, or shadow `main`.
-
-Refs created inside a function shadow, but do not overwrite or modify, global refs with the same name.
-
-When a function returns normally or exits early with `exit`, all branches and tags created in that function call are removed automatically.
-
-This means a function cannot access an arbitrary global branch or tag by naming it directly:
-
-```gitscript
-git branch branch1
-
-git config alias.example '!
-  git checkout branch1  # looks for local branch1, not global branch1
-'
-```
-
-The same rule applies to tags:
-
-```gitscript
-git tag saved
-
-git config alias.example '!
-  git show saved  # looks for local saved, not global saved
-'
-```
-
-To let a function use a branch or tag from its caller other than the caller's current branch, pass the name as a parameter:
-
-```gitscript
-git branch branch1
-
-git config alias.example -b target '!
-  git checkout target
-'
-
-git example branch1
-```
-
-The `-b` parameter binds an existing unprotected branch from the caller's frame. Inside the function, `target` refers to that bound caller branch, even if a local ref with the same literal name would otherwise be inaccessible.
-
-`main` and the caller's current branch name cannot be passed to `-b` parameters, whether positionally or by named argument. The caller's current branch is already available inside the function as `main`.
-
-Use `-p` for branch parameters that are allowed to refer to protected branches. A `-p` parameter can refer to `main` or the caller's current branch. Function-local code can `checkout`, `commit`, and `reset` through that parameter. It cannot delete the branch through that parameter.
-
-Use `-t` to bind an existing tag from the caller's frame.
-
-Use `-l` when a function needs a new label for a branch or tag it will create in the caller's frame. A `-l` argument is checked when the function is called and is valid only if it does not currently refer to any branch or tag in the caller's frame. Inside the function, creating `git branch label` or `git tag label` creates that ref in the caller's frame, not in the callee's temporary frame. This is similar in spirit to Python's `global`: the name is still introduced by the callee's code, but it belongs to the enclosing namespace.
-
-Commit parameters (`-c`) are evaluated in the caller's frame when the function is called, then bind that concrete commit inside the callee. The argument must be a `<commit-ref>`, not a `<commit-range>` or `<symdiff-range>`. This lets a caller pass `branch1~2` without exposing the caller's `branch1` name directly. The bound commit can be used anywhere a commit reference is expected, including as one side of a range selector, and `git log --graph` can annotate it as a parameter-bound commit.
-
-Nested function calls create nested frames. A branch or tag created in an outer function is not visible by name inside an inner function unless it is passed as a parameter to the inner function. In each nested call, `main` refers to that call's caller branch.
-
-When a function returns, GitScript restores the caller's previous `HEAD`. Because `main` is protected inside the function, this restoration is valid even if the function deleted other local branches.
-
-### Early Exit
-
-`exit` leaves the current function immediately. If `exit` runs at global scope, it ends the program.
-
-### Parameter Defaults and Named Arguments
-
-Defaults are declared by assigning a literal value in the parameter declaration:
+Defaults are declared in the parameter list:
 
 ```gitscript
 git config alias.foo -i count=1 -s message="ok" '!
@@ -975,238 +897,56 @@ git config alias.foo -i count=1 -s message="ok" '!
 '
 ```
 
-Defaults make parameters optional from the right when calling positionally:
+Defaults make parameters optional from the right when calling positionally.
+Defaults for branch, tag, and label parameters are checked at call time.
 
-```gitscript
-git foo
-git foo 3
-git foo 3 "done"
-```
-
-Defaults for `-l`, `-b`, `-p`, and `-t` parameters are checked when the function is called, the same as explicit arguments.
-
-Named arguments use long option syntax derived from the parameter name:
+Named arguments use long option syntax based on the parameter name:
 
 ```gitscript
 git foo --message "done" --count 3
-```
-
-Named arguments make argument order irrelevant and can be mixed after positional arguments, as long as each parameter is supplied at most once:
-
-```gitscript
 git foo 3 --message "done"
 ```
 
-This keeps function calls visually close to Git command options while avoiding a second parameter syntax.
+Named arguments can be mixed after positional arguments. Each parameter may be
+supplied at most once.
 
----
+### Branch and Tag Scope in Functions
 
-## Statement Composition
+Inside a function, branch and tag names resolve in the current frame plus
+explicit parameter bindings.
 
-GitScript statements can be composed with anonymous blocks, sequencing, error recovery, and newlines.
+Refs created inside a function are local to that call and disappear when the call
+returns. They can shadow global refs without modifying them.
 
-### Anonymous Blocks
+To let a function use a caller ref, pass it:
 
-An anonymous block can be used anywhere a statement can be used:
+* use `-b` for an existing unprotected branch
+* use `-p` for an existing branch protected inside the function
+* use `-t` for an existing tag
+* use `-l` for a new caller-frame branch or tag name the function will create
 
-```gitscript
-'!
-  git commit 1
-  git show
-'
-```
+`-l` behaves like a controlled caller-frame declaration. If a function receives
+`-l output`, then `git branch output` or `git tag output` creates that ref in the
+caller frame, not the callee's temporary frame.
 
-The block begins with `'!` and ends at the matching closing single quote. Its body uses the same statement syntax as a function body: the first statement can appear on the same line as `'!`, and the last statement can appear on the same line as the closing quote.
+Nested calls create nested frames. A ref from an outer function is not visible to
+an inner function unless passed along as a parameter. In every function call,
+`main` refers to that call's caller branch.
 
-Anonymous blocks can be nested. A `'!` inside an anonymous block starts a nested block and must be matched before the outer block can close. Single quotes that appear inside string literals do not close the surrounding block.
+When a function returns, GitScript restores the caller's previous `HEAD`.
 
-Anonymous blocks execute immediately in the current execution frame. They do not create a function call frame, do not introduce local branch/tag scope, and do not bind parameters. They are useful for grouping multiple statements into one statement for `&&` and `||`.
+## Garbage Collection and Errors
 
-Example:
+GitScript automatically removes commits no longer reachable from any branch or
+tag. This happens after operations that move refs, such as `reset` and `rebase`.
 
-```gitscript
-'!git commit 1 && git show'
-```
+Runtime errors include:
 
-This is one statement: an anonymous block containing two statements.
-
-Example with nesting:
-
-```gitscript
-'!
-  git commit -m "don't close the block"
-  '!git commit 2'
-'
-```
-
-### Sequencing With `&&`
-
-`&&` sequences statements on a single physical line:
-
-```gitscript
-git commit 1 && git show
-```
-
-This is equivalent to:
-
-```gitscript
-git commit 1
-git show
-```
-
-The right side of `&&` runs only if the left side completes successfully. If the left side fails with an error, the right side is skipped and that error continues outward.
-
-`&&` groups left to right:
-
-```gitscript
-A && B && C
-```
-
-is:
-
-```gitscript
-(A && B) && C
-```
-
-### Error Recovery With `||`
-
-`||` tries the left statement and runs the right statement only if the left statement fails with an error:
-
-```gitscript
-git cherry-pick denominator -s=div || git commit 0
-```
-
-If the cherry-pick fails, for example because of division by zero, the fallback `git commit 0` runs.
-
-`||` catches ordinary GitScript errors, including but not limited to:
-
-* integer parsing errors from `git commit`
 * division or modulo by zero
+* negative offsets
 * missing ancestors in `<commit-ref>~N`
 * missing branches or tags
 * using a tag where a branch is required, or a branch where a tag is required
-* invalid function arguments checked at call time
-* errors raised while defining a function body
-
-`||` does not catch syntax errors that prevent the program or enclosing block from being parsed.
-
-`exit`, `git merge --continue`, and `git merge --abort` are control-flow signals, not errors. They are not caught by `||`.
-
-If the left side of `||` fails after producing side effects, those side effects remain. GitScript does not roll back history, branch movement, tags, config changes, printed output, or partial work from a failed statement.
-
-`||` groups left to right:
-
-```gitscript
-A || B || C
-```
-
-is:
-
-```gitscript
-(A || B) || C
-```
-
-### Precedence
-
-Statement composition has this precedence, from strongest to weakest:
-
-1. Anonymous block: `'!...'`
-2. Sequencing: `&&`
-3. Error recovery: `||`
-4. Newline separation
-
-This means:
-
-```gitscript
-A && B || C && D
-```
-
-is parsed as:
-
-```gitscript
-(A && B) || (C && D)
-```
-
-and:
-
-```gitscript
-A || B
-C
-```
-
-is parsed as:
-
-```gitscript
-(A || B)
-C
-```
-
-A newline separates statements after `&&` and `||` have grouped everything on the physical line.
-
-### Merge-Conflict Statements
-
-A merge-conflict control structure is one statement for composition purposes. The `git merge [-s <condition>] [<label>]` line and its corresponding conflict markers and blocks stay together as a single statement, even though the statement spans multiple lines.
-
-Lexically, newlines, `&&`, `||`, and merge-conflict markers are statement separators.
-
-Conflict markers are forced to stay on their own physical lines. `&&` and `||` are not allowed before or after:
-
-* `<<<<<<< <commit-ref>`
-* `=======`
-* `>>>>>>> <commit-ref>`
-
-This means the inside of a conflict block can use `&&` and `||` between ordinary statements, but the marker lines themselves cannot share a line with anything else.
-
-Example:
-
-```gitscript
-git merge -s gt loop
-<<<<<<< counter
-    git cherry-pick one -s=sub && git merge --continue loop
-=======
-    git merge --abort loop
->>>>>>> root
-git show counter
-```
-
-The final `git show counter` runs after the whole merge-conflict statement finishes.
-
----
-
-## Chaotic Addressing
-
-Commit references can depend on values of other commits:
-
-```gitscript
-HEAD~(foo~2)
-```
-
-This enables:
-
-* dynamic indexing
-* pointer-like behavior
-* self-modifying access patterns
-
----
-
-## Garbage Collection
-
-GitScript automatically removes commits that are no longer reachable from any:
-
-* branch
-* tag
-
-This happens implicitly after operations like:
-
-* `reset`
-* `rebase`
-
----
-
-## Notes
-
-* Division and modulo by zero are runtime errors
-* Negative offsets are runtime errors
-* Infinite loops are easy to create (and expected)
-
----
+* invalid function arguments
+* import cycles
+* invalid global-only commands inside functions
