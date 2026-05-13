@@ -14,7 +14,7 @@ A commit is the unit of memory.
 Each commit stores:
 
 * an integer value
-* a parent commit, except for root commits
+* a reference to a parent commit, except for root commits
 * a creation number used to sort history from newest to oldest
 
 Commit values can be read as integers or as Unicode codepoints. String commands
@@ -44,8 +44,16 @@ The global repository starts with a root commit and a protected `main` branch.
 ```mermaid
 flowchart RL
     C1["commit #1\nvalue=7"] --> C0["root commit\nvalue=0"]
-    main["branch: main\nprotected\nHEAD"] --> C1
-    saved["tag: saved"] --> C0
+    Head(("HEAD")) --> MainBranch["branch: main\nprotected"]
+    MainBranch --> C1
+    SavedTag["tag: saved"] --> C0
+
+    classDef branch fill:#dbeafe,stroke:#2563eb,color:#111827
+    classDef tag fill:#ede9fe,stroke:#7c3aed,color:#111827
+    classDef head fill:#dcfce7,stroke:#16a34a,color:#111827
+    class MainBranch branch
+    class SavedTag tag
+    class Head head
 ```
 
 ### Execution Frames
@@ -73,18 +81,21 @@ function delete it.
 ```mermaid
 flowchart TB
     subgraph Caller["caller frame"]
-        Feature["branch: feature\ncurrent branch"]
-        Result["branch: result"]
+        Feature("branch: feature\ncurrent branch")
+        Result("branch: result")
     end
 
     subgraph Callee["function frame"]
-        Main["main !\nbinds caller:feature"]
-        Output["output\nbinds caller:result"]
-        Scratch["scratch\nlocal branch"]
+        Main("main !\nbinds caller:feature")
+        Output("output\nbinds caller:result")
+        Scratch("scratch\nlocal branch")
     end
 
     Main -.-> Feature
     Output -.-> Result
+    
+    classDef branch fill:#dbeafe,stroke:#2563eb,color:#111827
+    class Feature,Result,Main,Output,Scratch branch
 ```
 
 When a function returns normally or exits with `exit`, its local branches and
@@ -385,8 +396,17 @@ String commit mode:
 
 ```mermaid
 flowchart RL
-    Before["before\nmain -> A"] --> Root["root"]
-    After["after git commit 7\nmain -> B(value=7)"] --> Before
+    B["B\nvalue=7"] --> A["A\nprevious tip"]
+    A --> Root["root"]
+    HeadBefore(("HEAD before")) --> MainBefore("branch: main before")
+    MainBefore --> A
+    HeadAfter(("HEAD after")) --> MainAfter("branch: main after")
+    MainAfter --> B
+
+    classDef branch fill:#dbeafe,stroke:#2563eb,color:#111827
+    classDef head fill:#dcfce7,stroke:#16a34a,color:#111827
+    class MainBefore,MainAfter branch
+    class HeadBefore,HeadAfter head
 ```
 
 ### Branches and Checkout
@@ -466,9 +486,16 @@ git reset <commit-ref>
 
 ```mermaid
 flowchart RL
-    C2["C2\nold HEAD"] --> C1["C1\nnew HEAD"]
+    C2["C2\nold tip"] --> C1["C1\nnew tip"]
     C1 --> C0["root"]
-    main["main after reset"] --> C1
+    OldHead(("HEAD before")) --> C2
+    Head(("HEAD after")) --> MainBranch("branch: main after reset")
+    MainBranch --> C1
+
+    classDef branch fill:#dbeafe,stroke:#2563eb,color:#111827
+    classDef head fill:#dcfce7,stroke:#16a34a,color:#111827
+    class MainBranch branch
+    class OldHead,Head head
 ```
 
 ### Cherry-Pick
@@ -499,9 +526,18 @@ onto a current value of `5` with `-s=add` creates `[6, 8, 11]`.
 ```mermaid
 flowchart RL
     S3["source value 3"] --> S2["source value 2"] --> S1["source value 1"]
-    T2["new value 8"] --> T1["new value 6"] --> Base["base value 5"]
+    T3["new value 11"] --> T2["new value 8"] --> T1["new value 6"] --> Base["base value 5"]
+    SourceBranch("branch: source") --> S3
+    Head(("HEAD")) --> MainBranch("branch: main")
+    MainBranch --> T3
+    S3 -. "pick add" .-> T3
     S2 -. "pick add" .-> T2
     S1 -. "pick add" .-> T1
+
+    classDef branch fill:#dbeafe,stroke:#2563eb,color:#111827
+    classDef head fill:#dcfce7,stroke:#16a34a,color:#111827
+    class SourceBranch,MainBranch branch
+    class Head head
 ```
 
 Division and modulo by zero are runtime errors.
@@ -531,15 +567,28 @@ new creation numbers.
 ```mermaid
 flowchart TB
     subgraph Before["before"]
+        direction RL
         B2["B2"] --> B1["B1"] --> Base1["base"]
-        T1["target"] --> Base1
-        Current1["current branch"] --> B2
+        T1["target commit"] --> Base1
+        TargetBefore("branch: target") --> T1
+        HeadBefore(("HEAD")) --> CurrentBefore("current branch")
+        CurrentBefore --> B2
     end
 
     subgraph After["after git rebase target"]
-        NB2["B2'"] --> NB1["B1'"] --> T2["target"] --> Base2["base"]
-        Current2["current branch"] --> NB2
+        direction RL
+        NB2["B2'"] --> NB1["B1'"] --> T2["target commit"] --> Base2["base"]
+        TargetAfter("branch: target") --> T2
+        HeadAfter(("HEAD")) --> CurrentAfter("current branch")
+        CurrentAfter --> NB2
     end
+    
+    Before ~~~ After
+
+    classDef branch fill:#dbeafe,stroke:#2563eb,color:#111827
+    classDef head fill:#dcfce7,stroke:#16a34a,color:#111827
+    class TargetBefore,CurrentBefore,TargetAfter,CurrentAfter branch
+    class HeadBefore,HeadAfter head
 ```
 
 After ref movement operations such as `reset` and `rebase`, unreachable commits
