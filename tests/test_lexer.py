@@ -21,6 +21,9 @@ class LexerTests(unittest.TestCase):
         self.assertEqual(tokens[2].kind, TokenKind.INT_LITERAL)
         self.assertEqual(tokens[2].value, "-42")
 
+        tokens = lex_statement("pause", 1)
+        self.assertEqual(tokens[0].kind, TokenKind.PAUSE)
+
     def test_lexes_separators_and_strategies(self):
         tokens = lex_statement("git cherry-pick HEAD^...HEAD -s=max && git merge -s is || git commit 0", 1)
 

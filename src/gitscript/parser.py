@@ -38,6 +38,7 @@ from gitscript.statements import (
     Init,
     ListConfig,
     ListTags,
+    Pause,
     Pull,
     Push,
     Rebase,
@@ -537,6 +538,8 @@ def _split_tokens(tokens: list[Token], separator: TokenKind) -> list[list[Token]
 def _parse_simple_statement(tokens: list[Token], line_number: int) -> Statement | _MergeStart:
     if len(tokens) == 1 and tokens[0].kind == TokenKind.EXIT:
         return Exit()
+    if len(tokens) == 1 and tokens[0].kind == TokenKind.PAUSE:
+        return Pause()
 
     stream = _TokenCursor(tokens, line_number)
     if not stream.accept(TokenKind.GIT):
@@ -1133,11 +1136,11 @@ def _validate_function_statement_starts(lines: list[_Line]) -> None:
         tokens = _lex_statement(_strip_comment(line.text).strip(), line.number)
         if not tokens or tokens[0].kind in _CONFLICT_MARKER_KINDS:
             continue
-        if tokens[0].kind in {TokenKind.GIT, TokenKind.EXIT}:
+        if tokens[0].kind in {TokenKind.GIT, TokenKind.EXIT, TokenKind.PAUSE}:
             continue
         if tokens[0].kind == TokenKind.STRING_LITERAL and tokens[0].value.startswith("!"):
             continue
-        raise ParseError(f"Line {line.number}: Function body statements must start with git or be exit")
+        raise ParseError(f"Line {line.number}: Function body statements must start with git or be pause or exit")
 
 
 def _validate_function_parameter_uses(lines: list[_Line], parameter_kinds: dict[str, str]) -> None:
@@ -1166,7 +1169,7 @@ def _validate_function_parameter_uses(lines: list[_Line], parameter_kinds: dict[
                     "commit reference",
                 )
             continue
-        if tokens[0].kind in {TokenKind.CONFLICT_MIDDLE, TokenKind.EXIT}:
+        if tokens[0].kind in {TokenKind.CONFLICT_MIDDLE, TokenKind.EXIT, TokenKind.PAUSE}:
             continue
 
         if len(tokens) < 2 or tokens[0].kind != TokenKind.GIT:

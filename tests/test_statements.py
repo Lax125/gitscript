@@ -1,7 +1,7 @@
 import contextlib
 import io
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from gitscript import ansi
 from gitscript.ansi import strip as strip_ansi
@@ -27,6 +27,7 @@ from gitscript.statements import (
     LogRange,
     MergeAbort,
     MergeContinue,
+    Pause,
     Rebase,
     Revert,
     RevertRange,
@@ -77,6 +78,19 @@ class StatementTests(unittest.TestCase):
         self.assertEqual(head.value, 5)
         self.assertIs(head.parent, root)
         self.assertEqual(values_from_head(repo), [5, 0])
+
+    def test_pause_prints_to_debug_waits_for_input_and_updates_visualizer(self):
+        repo = Repo()
+        repo.visualizer = Mock()
+        debug = io.StringIO()
+
+        with patch("builtins.input", return_value="ignored") as input_mock:
+            with contextlib.redirect_stderr(debug):
+                Pause().run(repo)
+
+        self.assertEqual(strip_ansi(debug.getvalue()), "Paused, press enter to continue.\n")
+        input_mock.assert_called_once_with()
+        repo.visualizer.update.assert_called_once_with(repo)
 
     def test_commit_can_read_value_from_input(self):
         repo = Repo()

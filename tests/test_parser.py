@@ -27,6 +27,7 @@ from gitscript.statements import (
     LogRange,
     MergeAbort,
     MergeContinue,
+    Pause,
     Pull,
     Push,
     Revert,
@@ -224,20 +225,23 @@ class ParserTests(unittest.TestCase):
     def test_parse_statement_separator_aliases_functions_and_exit(self):
         statements = parse(
             """
-            git commit true && git commit false
+            git commit true && pause && git commit false
             git config alias.cp 'cherry-pick'
             git config alias.pick -l label -b target -p owner -t mark -c source -o strategy '!
                 git cherry-pick source -s=strategy && exit
             '
             git later new-label other main saved main max
+            pause
             exit
             """
         )
 
-        self.assertEqual(len(statements), 5)
+        self.assertEqual(len(statements), 6)
         self.assertIsInstance(statements[0], Sequence)
-        self.assertIsInstance(statements[0].left, Commit)
-        self.assertEqual(statements[0].left.value, 1)
+        self.assertIsInstance(statements[0].left, Sequence)
+        self.assertIsInstance(statements[0].left.left, Commit)
+        self.assertEqual(statements[0].left.left.value, 1)
+        self.assertIsInstance(statements[0].left.right, Pause)
         self.assertIsInstance(statements[0].right, Commit)
         self.assertEqual(statements[0].right.value, 0)
         self.assertIsInstance(statements[1], DefineAlias)
@@ -258,7 +262,8 @@ class ParserTests(unittest.TestCase):
         self.assertIsInstance(statements[3], AliasCall)
         self.assertEqual(statements[3].name, "later")
         self.assertEqual(statements[3].args, ["new-label", "other", "main", "saved", "main", "max"])
-        self.assertIsInstance(statements[4], Exit)
+        self.assertIsInstance(statements[4], Pause)
+        self.assertIsInstance(statements[5], Exit)
 
     def test_parse_statement_composition_precedence_and_anonymous_blocks(self):
         statements = parse(

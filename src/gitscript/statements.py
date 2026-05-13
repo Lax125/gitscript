@@ -324,6 +324,13 @@ class Exit(Statement):
         raise ExitSignal()
 
 
+class Pause(Statement):
+    def run(self, repo: Repo):
+        print("Paused, press enter to continue.", file=sys.stderr, flush=True)
+        repo.notify_visualizer()
+        input()
+
+
 class Checkout(Statement):
     def __init__(self, branch_name: str, create_at: Optional[Ref] = None):
         self.branch_name = branch_name

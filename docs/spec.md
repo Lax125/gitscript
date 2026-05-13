@@ -641,10 +641,22 @@ Commit nodes are placed chronologically from bottom to top: older commits are
 lower, newer commits are higher, matching the reading order of
 `git log --graph --all`.
 
-The visualizer shows every commit currently known to the repository. In a
-function stack frame, commits and edges not reachable from currently visible
-branches or tags are drawn translucent. Branches and tags visible in the current
-frame are shown as annotations on the commit nodes they point to.
+The visualizer shows commits reachable from at least one branch or tag on any
+active stack frame, including global refs, function-local refs, and branch or tag
+bindings. Commits that are no longer reachable from any branch or tag are not
+shown.
+
+Branches, tags, and `HEAD` are shown as separate pointer nodes. Branch nodes,
+tag nodes, and `HEAD` nodes use distinct visual styles. `HEAD` points to the
+branch it has checked out. In a function, the current frame's head is labelled
+`HEAD N`, where `N` is the stack frame number, while saved caller heads keep the
+caller frame's number. The global caller head is labelled `HEAD`. A branch or
+tag binding points to the caller-frame branch or tag it is bound to, and that
+target ref stays opaque even when it is outside the current frame.
+
+When execution is inside a function frame, commits, edges, branches, and tags
+outside the current frame are shown translucently. Saved `HEAD` positions from
+caller frames are also shown translucently.
 
 The graph updates after commit creation, branch movement, checkout, reset,
 branch and tag creation or deletion, rebase, `git init`, and function frame
@@ -792,8 +804,8 @@ ancestors, type errors in function arguments, division by zero, and errors raise
 while defining a function body. It does not catch parse errors that prevent the
 enclosing block from being parsed.
 
-`exit`, `git merge --continue`, and `git merge --abort` are control-flow signals,
-not errors, so `||` does not catch them.
+`exit`, `pause`, `git merge --continue`, and `git merge --abort` are
+control-flow or debugging signals, not errors, so `||` does not catch them.
 
 Precedence, from strongest to weakest:
 
@@ -821,6 +833,16 @@ exit
 
 `exit` is separate from `git merge --abort`, which exits only merge-conflict
 blocks.
+
+### `pause`
+
+```gitscript
+pause
+```
+
+`pause` is a debugging statement. It prints `Paused, press enter to continue.`
+to stderr, updates the visualization if `gitscript -v` is active, then waits for
+one line of user input. The input is discarded.
 
 ## Functions and Aliases
 
@@ -867,7 +889,7 @@ Function bodies are syntax-checked when the function is defined.
 Function body rules:
 
 * the body cannot define aliases or functions
-* each statement must start with `git`, be `exit`, or be an anonymous block
+* each statement must start with `git`, be `pause`, be `exit`, or be an anonymous block
 * built-in statements must conform to the spec
 * parameter uses must match the declared parameter types
 

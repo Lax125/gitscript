@@ -34,6 +34,7 @@ class TokenKind(Enum):
     LOG = auto()
     REV_LIST = auto()
     EXIT = auto()
+    PAUSE = auto()
     HEAD = auto()
 
     OPTION = auto()
@@ -104,6 +105,7 @@ _KEYWORDS = {
     "log": TokenKind.LOG,
     "rev-list": TokenKind.REV_LIST,
     "exit": TokenKind.EXIT,
+    "pause": TokenKind.PAUSE,
     "HEAD": TokenKind.HEAD,
 }
 
