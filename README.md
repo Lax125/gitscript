@@ -50,6 +50,14 @@ gitscript -i ./examples/hello_world.gs
 
 In `-i` mode, relative `git pull` and `git clone` paths in the REPL continue to resolve from the script's directory.
 
+Open a live PyVis commit graph while running:
+
+```sh
+gitscript -v ./examples/hello_world.gs
+```
+
+The visual graph is zoomable and pannable. It updates as commits and refs change.
+
 Inside the REPL, type GitScript commands one at a time. Use `quit` or `exit` to leave.
 
 ---

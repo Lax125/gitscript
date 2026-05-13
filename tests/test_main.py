@@ -374,6 +374,34 @@ class MainTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         repl_mock.assert_called_once_with()
 
+    def test_main_visualize_starts_graph_for_repl(self):
+        with patch("gitscript.main.GraphVisualizer") as visualizer_class:
+            visualizer = visualizer_class.return_value
+            with patch("gitscript.main.repl") as repl_mock:
+                exit_code = main(["-v"])
+
+        self.assertEqual(exit_code, 0)
+        visualizer_class.assert_called_once_with()
+        visualizer.start.assert_called_once()
+        repl_mock.assert_called_once()
+        self.assertIs(repl_mock.call_args.args[0].visualizer, visualizer)
+
+    def test_main_visualize_runs_file_with_live_graph(self):
+        with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as file:
+            file.write("git commit 21\n")
+            filename = file.name
+
+        try:
+            with patch("gitscript.main.GraphVisualizer") as visualizer_class:
+                visualizer = visualizer_class.return_value
+                exit_code = main(["-v", filename])
+        finally:
+            os.unlink(filename)
+
+        self.assertEqual(exit_code, 0)
+        visualizer.start.assert_called_once()
+        self.assertGreaterEqual(visualizer.update.call_count, 2)
+
     def test_main_interactive_runs_file_then_starts_repl_with_script_worktree(self):
         with tempfile.TemporaryDirectory() as directory:
             filename = os.path.join(directory, "script.gs")

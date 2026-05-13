@@ -626,6 +626,30 @@ Example shape:
 * 0 value=0 char='\0' [tag:root]
 ```
 
+### Command-Line Visualization
+
+```sh
+gitscript -v <file-path>
+gitscript -v
+gitscript -v -i <file-path>
+```
+
+The `-v` flag opens a PyVis window showing the complete commit graph while the
+program runs. The graph is zoomable and pannable.
+
+Commit nodes are placed chronologically from bottom to top: older commits are
+lower, newer commits are higher, matching the reading order of
+`git log --graph --all`.
+
+The visualizer shows every commit currently known to the repository. In a
+function stack frame, commits and edges not reachable from currently visible
+branches or tags are drawn translucent. Branches and tags visible in the current
+frame are shown as annotations on the commit nodes they point to.
+
+The graph updates after commit creation, branch movement, checkout, reset,
+branch and tag creation or deletion, rebase, `git init`, and function frame
+entry or exit.
+
 ### `git rev-list`
 
 ```gitscript

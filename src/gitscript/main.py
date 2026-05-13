@@ -7,6 +7,7 @@ from gitscript.parser import IncompleteInput, ParseError, parse, parse_repl
 from gitscript.preprocessor import PreprocessError, preprocess_file, preprocess_source
 from gitscript.repo import Repo
 from gitscript.statements import ExitSignal
+from gitscript.visualizer import GraphVisualizer
 
 
 def run_statements(
@@ -82,15 +83,33 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="Enter REPL mode after running the script.",
     )
+    arg_parser.add_argument(
+        "-v",
+        "--visualize",
+        action="store_true",
+        help="Open a live PyVis commit graph while running.",
+    )
     arg_parser.add_argument("filename", nargs="?", help="GitScript file to run. Starts a REPL when omitted.")
     args = arg_parser.parse_args(argv)
 
+    repo = Repo()
+    try:
+        if args.visualize:
+            repo.visualizer = GraphVisualizer()
+            repo.visualizer.start(repo)
+    except RuntimeError as exc:
+        print(_format_error(exc), file=sys.stderr, flush=True)
+        return 1
+
     if args.filename is None:
-        repl()
+        if args.visualize:
+            repl(repo)
+        else:
+            repl()
         return 0
 
     try:
-        repo = run_file(args.filename, restore_worktree=not args.interactive)
+        run_file(args.filename, repo=repo, restore_worktree=not args.interactive)
     except (OSError, ParseError, PreprocessError, RuntimeError, ValueError) as exc:
         print(_format_error(exc), file=sys.stderr, flush=True)
         return 1

@@ -280,6 +280,10 @@ def protect_binding(binding: RefBinding, name: str) -> RefBinding:
 
 class Repo:
     def __init__(self):
+        visualizer = getattr(self, "visualizer", None)
+        self.visualizer = visualizer
+        self._visualizer_ready = False
+        self.commits: list[Commit] = []
         self.next_commit_order = 0
         root = self.allocate_commit(0, None)
 
@@ -292,11 +296,20 @@ class Repo:
         self.aliases = {}
         self.import_cache = {}
         self.call_stack: list[FunctionFrame] = []
+        self._visualizer_ready = True
+        self.notify_visualizer()
 
     def allocate_commit(self, value: int, parent: Commit | None) -> Commit:
         commit = Commit(value, parent, self.next_commit_order)
         self.next_commit_order += 1
+        self.commits.append(commit)
+        self.notify_visualizer()
         return commit
+
+    def notify_visualizer(self) -> None:
+        if self.visualizer is None or not self._visualizer_ready:
+            return
+        self.visualizer.update(self)
 
     def current_frame(self) -> FunctionFrame | None:
         if not self.call_stack:
@@ -348,10 +361,12 @@ class Repo:
             merge_verbosity=self.merge_verbosity,
         ))
         self.HEAD = "main"
+        self.notify_visualizer()
 
     def pop_function_frame(self) -> None:
         frame = self.call_stack.pop()
         self.HEAD = frame.caller_head
+        self.notify_visualizer()
 
     def resolve(self, tag_or_branch_name: str) -> Commit:
         binding = self._binding(tag_or_branch_name)
@@ -400,6 +415,7 @@ class Repo:
 
     def set_current_commit(self, commit: Commit) -> None:
         self.bind_branch(self.HEAD).set_branch(commit)
+        self.notify_visualizer()
 
     def create_branch(self, name: str, commit: Commit) -> None:
         if name == "main" and self.current_frame() is not None:
@@ -409,6 +425,7 @@ class Repo:
             if binding.is_branch() or binding.is_tag():
                 raise RuntimeError(f"Branch or tag {name} already exists")
             binding.create_branch(commit)
+            self.notify_visualizer()
             return
         if self.has(name):
             raise RuntimeError(f"Branch or tag {name} already exists")
@@ -418,6 +435,7 @@ class Repo:
             frame.branches[name] = commit
         else:
             self.branches[name] = commit
+        self.notify_visualizer()
 
     def delete_branch(self, name: str) -> None:
         if name == "main":
@@ -428,6 +446,7 @@ class Repo:
         binding = self._binding(name)
         if binding is not None:
             binding.delete_branch()
+            self.notify_visualizer()
             return
 
         frame = self.current_frame()
@@ -435,16 +454,19 @@ class Repo:
             if name not in frame.branches:
                 raise RuntimeError(f"Branch {name} does not exist")
             del frame.branches[name]
+            self.notify_visualizer()
             return
 
         if name not in self.branches:
             raise RuntimeError(f"Branch {name} does not exist")
         del self.branches[name]
+        self.notify_visualizer()
 
     def checkout(self, name: str) -> None:
         if not self.has_branch(name):
             raise RuntimeError(f"Branch {name} does not exist")
         self.HEAD = name
+        self.notify_visualizer()
 
     def create_tag(self, name: str, commit: Commit) -> None:
         if name == "main" and self.current_frame() is not None:
@@ -454,6 +476,7 @@ class Repo:
             if binding.is_branch() or binding.is_tag():
                 raise RuntimeError(f"Branch or tag {name} already exists")
             binding.create_tag(commit)
+            self.notify_visualizer()
             return
         if self.has(name):
             raise RuntimeError(f"Branch or tag {name} already exists")
@@ -463,11 +486,13 @@ class Repo:
             frame.tags[name] = commit
         else:
             self.tags[name] = commit
+        self.notify_visualizer()
 
     def delete_tag(self, name: str) -> None:
         binding = self._binding(name)
         if binding is not None:
             binding.delete_tag()
+            self.notify_visualizer()
             return
 
         frame = self.current_frame()
@@ -475,11 +500,13 @@ class Repo:
             if name not in frame.tags:
                 raise RuntimeError(f"tag {name} does not exist")
             del frame.tags[name]
+            self.notify_visualizer()
             return
 
         if name not in self.tags:
             raise RuntimeError(f"tag {name} does not exist")
         del self.tags[name]
+        self.notify_visualizer()
 
     def bind_branch(self, name: str) -> RefBinding:
         binding = self._binding(name)
