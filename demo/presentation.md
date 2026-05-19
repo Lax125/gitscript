@@ -202,6 +202,7 @@ git config alias.bump -p target -i amount '!
     git commit amount
     git branch scratch
     git branch
+    pause
 '
 
 git checkout -b score
